@@ -9,6 +9,8 @@ import streamlit as st
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from io import BytesIO
+import base64
 
 
 def set_style():
@@ -133,6 +135,25 @@ def data_analysis():
     
                 st.markdown("##### Summary table for Order status:")
                 st.table(state_summary)
+                
+                def download_excel(dataframe):
+                    # Write the Excel file to a buffer
+                    excel_buffer = BytesIO()
+                    dataframe.to_excel(excel_buffer, index=False)  # Index is False to exclude index column
+                    excel_buffer.seek(0)
+                    
+                    # Encode the Excel data as base64
+                    b64 = base64.b64encode(excel_buffer.read()).decode()
+                    
+                    # Create download link
+                    href = f'<a href="data:application/octet-stream;base64,{b64}" download="order_status_summary.xlsx">Download Excel File</a>'
+                    
+                    # Display download link
+                    st.markdown(href, unsafe_allow_html=True)
+                
+                # Display the download button
+                if st.button("Download Order Status Summary"):
+                    download_excel(state_summary)                
     
                 # Create pivot table 1
                 pivot_df = filtered_df.pivot_table(index='BUSINESS CITY', columns='STATE', values='ID', aggfunc='count', margins=True).round(0)
@@ -307,6 +328,28 @@ def delivery_time():
                 
                 st.write("Table of Delivery Time Metrics:")
                 st.write(pivot_table_df2)
+                
+                # Function to handle file download
+                def download_excel(dataframe):
+                    # Write the Excel file to a buffer
+                    excel_buffer = BytesIO()
+                    dataframe.to_excel(excel_buffer, index=True)
+                    excel_buffer.seek(0)
+                    
+                    # Encode the Excel data as base64
+                    b64 = base64.b64encode(excel_buffer.read()).decode()
+                    
+                    # Create download link
+                    href = f'<a href="data:application/octet-stream;base64,{b64}" download="delivery_time_metrics.xlsx">Download Excel File</a>'
+                    
+                    # Display download link
+                    st.markdown(href, unsafe_allow_html=True)
+                
+                # Display the download button
+                if st.button("Download Delivery Time Metrics"):
+                    download_excel(pivot_table_df2)
+                    
+                
                 
                 # Create a multiselect widget to filter columns
                                 
@@ -639,10 +682,28 @@ def drivers_analysis():
                 st.write("Driver Performance Pivot Table:")
                 st.write(driver_performance_pivot)
                 
-                if st.button("Download Driver Performance Metrics", key='download_driver_performance_button'):
-                 driver_performance_pivot.to_excel('driver_performance_metrics.xlsx', sheet_name='Driver_Performance', index=True)
-              
-                           
+                
+                # Function to handle file download
+                def download_excel(dataframe):
+                    # Write the Excel file to a buffer
+                    excel_buffer = BytesIO()
+                    dataframe.to_excel(excel_buffer, index=True)
+                    excel_buffer.seek(0)
+                    
+                    # Encode the Excel data as base64
+                    b64 = base64.b64encode(excel_buffer.read()).decode()
+                    
+                    # Create download link
+                    href = f'<a href="data:application/octet-stream;base64,{b64}" download="driver_performance_metrics.xlsx">Download Excel File</a>'
+                    
+                    # Display download link
+                    st.markdown(href, unsafe_allow_html=True)
+                
+                # Display the download button
+                if st.button("Download Driver Performance Metrics"):
+                    download_excel(driver_performance_pivot)                                           
+                    
+                    
                 # Search for driver name
                 search_driver_name = st.text_input("Search Driver Name:")
                 
@@ -809,7 +870,27 @@ def rejected_orders():
             
             # Display the DataFrame with selected columns
             st.dataframe(rejected_orders[show_data], use_container_width=True)           
-                       
+                  
+            def download_excel(dataframe):
+                # Write the Excel file to a buffer
+                excel_buffer = BytesIO()
+                dataframe.to_excel(excel_buffer, index=False)  # Index is False to exclude index column
+                excel_buffer.seek(0)
+                
+                # Encode the Excel data as base64
+                b64 = base64.b64encode(excel_buffer.read()).decode()
+                
+                # Create download link
+                href = f'<a href="data:application/octet-stream;base64,{b64}" download="rejected_orders_summary.xlsx">Download Excel File</a>'
+                
+                # Display download link
+                st.markdown(href, unsafe_allow_html=True)
+            
+            # Display the download button
+            if st.button("Download Rejected Orders Summary"):
+                download_excel(rejected_orders)            
+                        
+                
             # Add a text input for search query
             search_query = st.text_input("Search by Order ID or Business Name:")
             
@@ -828,6 +909,7 @@ def rejected_orders():
                 else:
                     st.write("No matching orders found.")
                     
+                
        
 
         except Exception as e:
