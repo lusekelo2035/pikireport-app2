@@ -61,14 +61,15 @@ def set_style():
         unsafe_allow_html=True
     )
 
-set_style()
-
-# App content
-st.title("DAILY REPORT ")
-st.markdown("<div class='main'>", unsafe_allow_html=True)
-st.markdown("<div class='title'>Data analysis for daily operation 📊</div>", unsafe_allow_html=True)
-
+# Main function
 def main():
+    set_style()
+
+    # App content
+    st.title("DAILY REPORT ")
+    st.markdown("<div class='main'>", unsafe_allow_html=True)
+    st.markdown("<div class='title'>Data analysis for daily operation 📊</div>", unsafe_allow_html=True)
+    
    
     # Navigation sidebar
     nav_page = st.sidebar.radio("Navigation", ["Data Analysis📈📉", "Delivery Time⏰","drivers analysis🚴","rejected orders"])
@@ -82,13 +83,8 @@ def main():
     elif nav_page == "rejected orders":
         rejected_orders()
     
-
-
-
-
-
-
-
+    
+    
 def data_analysis():
     upload = st.file_uploader("Upload Your Dataset (In CSV or Excel Format)", type=["csv", "xlsx"])
     
@@ -136,6 +132,51 @@ def data_analysis():
                 st.markdown("##### Summary table for Order status:")
                 st.table(state_summary)
                 
+                
+                 # Group orders by business city
+                orders_by_city = data.groupby('BUSINESS CITY')
+                
+                
+                for city_name, city_orders in orders_by_city:
+                    # Group orders by state
+                    state_counts = city_orders['STATE'].value_counts()
+                    total_orders = len(city_orders)
+                    
+                    # Display an expander
+                    with st.expander(f"{city_name}"):
+                        st.write(f"###### Orders for {city_name} = ({total_orders} orders)")
+                                               
+                        st.columns(5, gap='small')  
+                        
+                        # Iterate through each state within the current city
+                        for state, count in state_counts.items():
+                            st.info(f"###### {state}")
+                            st.metric(label="Total Orders", value=f"{count}")
+                
+                
+               # based on status
+                state_counts = data['STATE'].value_counts()
+                total_orders = len(data)
+                
+                # Display the summary table
+                st.markdown("### Summary table for Order status:")
+                st.columns(5, gap='small')  # Divide the layout into 5 columns
+                
+                # Iterate through each state
+                for state, count in state_counts.items():
+                    with st.expander(f"{state} ({count} orders)"):
+                        st.info(f"##### {state}")
+                        st.metric(label="Total Orders", value=f"{count}")
+                        
+                        # Group orders by business city
+                        orders_by_city = data[data['STATE'] == state].groupby('BUSINESS CITY').size().reset_index(name='Number of Orders')
+                        
+                        # Display summary of orders by business city
+                        st.markdown("#### Orders by Business City:")
+                        st.table(orders_by_city)
+                                                 
+                        
+                
                 def download_excel(dataframe):
                     # Write the Excel file to a buffer
                     excel_buffer = BytesIO()
@@ -153,7 +194,8 @@ def data_analysis():
                 
                 # Display the download button
                 if st.button("Download Order Status Summary"):
-                    download_excel(state_summary)                
+                    download_excel(state_summary)     
+                    
     
                 # Create pivot table 1
                 pivot_df = filtered_df.pivot_table(index='BUSINESS CITY', columns='STATE', values='ID', aggfunc='count', margins=True).round(0)
@@ -224,7 +266,9 @@ def data_analysis():
     
         except Exception as e:
             st.write("An error occurred:", e)
+
         
+
 def delivery_time():
     upload = st.file_uploader("Upload Your Dataset (In CSV or Excel Format)", type=["csv", "xlsx"])
 
@@ -299,7 +343,7 @@ def delivery_time():
                 df2['DELIVERY TIME'] = pd.to_datetime(df2['DELIVERY TIME'])
                 df2['HOURS'] = df2['DELIVERY TIME'].dt.hour
                                                
-                
+                                             
                 pivot_table_df2 = df2.pivot_table(
                     index='BUSINESS CITY',
                     values=['STATE', 'DRIVER ID', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
@@ -349,52 +393,44 @@ def delivery_time():
                 if st.button("Download Delivery Time Metrics"):
                     download_excel(pivot_table_df2)
                     
-                
-                
-                # Create a multiselect widget to filter columns
-                                
-                selected_hours = st.multiselect('Filter by Hours:', sorted(df2['HOURS'].unique()))
-                
-                # Filter the DataFrame based on the selected hours
-                filtered_data = df2[df2['HOURS'].isin(selected_hours)]
-                
-                if not selected_hours:
-                    st.write("Please select the hours to filter.")
-                else:
-                    # Create a pivot table for the filtered data
-                    pivot_table_filtered_data = filtered_data.pivot_table(
-                        index='BUSINESS CITY',
-                        values=['STATE', 'DRIVER ID', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
-                                'Driver to Business', 'Driver in Business', 'Pickup to Customer', 'Average Delivery Time'],
-                        aggfunc={'STATE': 'count',
-                                 'DRIVER ID': 'nunique',
-                                 'Accepted by Business': 'mean',
-                                 'Assigned Time': 'mean',
-                                 'Accepted by Driver': 'mean',
-                                 'Driver to Business': 'mean',
-                                 'Driver in Business': 'mean',
-                                 'Pickup to Customer': 'mean',
-                                 'Average Delivery Time': 'mean'},
-                        margins=True
-                    ).round(1)
                     
-                    # Rename columns if necessary
-                    pivot_table_filtered_data.rename(columns={'STATE': 'Total Orders', 'DRIVER ID': 'Total Drivers'}, inplace=True)
+
                     
-                    # Reorder the columns if necessary
-                    column_order = ['Total Orders', 'Total Drivers', 'Accepted by Business', 'Assigned Time',
-                                    'Accepted by Driver', 'Driver to Business', 'Driver in Business', 'Pickup to Customer',
-                                    'Average Delivery Time']
-                    
-                    pivot_table_filtered_data = pivot_table_filtered_data[column_order]
-                    
-                    # Display the pivot table
-                    st.write("Pivot Table for Selected Hours:")
-                    st.write(pivot_table_filtered_data)
+                #pivot Hours
+                pivot_table_hours = df2.pivot_table(
+                    index='HOURS',  # Set the index to the 'HOURS' column
+                    values=['STATE', 'DRIVER ID', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
+                            'Driver to Business', 'Driver in Business', 'Pickup to Customer', 'Average Delivery Time'],
+                    aggfunc={'STATE': 'count',
+                             'DRIVER ID': 'nunique',
+                             'Accepted by Business': 'mean',
+                             'Assigned Time': 'mean',
+                             'Accepted by Driver': 'mean',
+                             'Driver to Business': 'mean',
+                             'Driver in Business': 'mean',
+                             'Pickup to Customer': 'mean',
+                             'Average Delivery Time': 'mean'},
+                    margins=True
+                ).round(1)
+                
+                # Rename columns 
+                pivot_table_hours.rename(columns={'STATE': 'Total Orders', 'DRIVER ID': 'Total Drivers'}, inplace=True)
+                
+                # Reorder the columns 
+                column_order = ['Total Orders', 'Total Drivers', 'Accepted by Business', 'Assigned Time',
+                                'Accepted by Driver', 'Driver to Business', 'Driver in Business', 'Pickup to Customer',
+                                'Average Delivery Time']
+                
+                pivot_table_hours = pivot_table_hours[column_order]
+                
+                st.write("Pivot Table of Delivery Time Metrics by Hours:")
+                st.write(pivot_table_hours)
+                                                     
+            
             
                 explode = (0.1, 0, 0, 0, 0, 0)
                 bins = [0, 40, 45, 60, 90, 119, float('inf')]
-                labels = ['Excellent', 'Average', 'Ideal', 'Delayed', 'Bad', 'Worse']
+                labels = ['Excellent', 'ideal', 'average', 'Delayed', 'Bad', 'Worse']
                 colors = sns.color_palette("deep", len(labels))
                 
                 # Add a new column with the delivery time categories
@@ -404,7 +440,7 @@ def delivery_time():
                 category_counts = df2['Delivery Time Category'].value_counts()
                 
                 # Create a pie chart
-                st.pyplot(plt.figure(figsize=(8, 8)))
+                #st.pyplot(plt.figure(figsize=(8, 8)))
                 plt.pie(category_counts, labels=category_counts.index, autopct='%1.1f%%',
                         startangle=140, explode=explode, colors=colors)
                 plt.title('Distribution of Delivery Time Categories')
@@ -417,6 +453,7 @@ def delivery_time():
                 plt.tight_layout()
                 # Show the pie chart
                 st.pyplot(plt)
+            
             
                # TABLE FOR DELIVERY CATEGORIES
                 results = pd.DataFrame({
@@ -434,6 +471,26 @@ def delivery_time():
                 # Display the table of results
                 st.write("Table of Delivery Time Categories:")
                 st.write(results)
+                
+                # Function to handle file download
+                def download_excel(dataframe):
+                    # Write the Excel file to a buffer
+                    excel_buffer = BytesIO()
+                    dataframe.to_excel(excel_buffer, index=True)
+                    excel_buffer.seek(0)
+                    
+                    # Encode the Excel data as base64
+                    b64 = base64.b64encode(excel_buffer.read()).decode()
+                    
+                    # Create download link
+                    href = f'<a href="data:application/octet-stream;base64,{b64}" download="(Table of Delivery Time Categories.xlsx">Download Excel File</a>'
+                    
+                    # Display download link
+                    st.markdown(href, unsafe_allow_html=True)
+                
+                # Display the download button
+                if st.button("Download Delivery Time Categories "):
+                    download_excel(results)                
             
 
                 
@@ -468,7 +525,7 @@ def delivery_time():
                 if st.button("Download Driver Performance Metrics", key='download_driver_performance_button'):
                  driver_performance_pivot.to_excel('driver_performance_metrics.xlsx', sheet_name='Driver_Performance', index=True)
               
-                           
+                 
                 # Search for driver name
                 search_driver_name = st.text_input("Search Driver Name:")
                 
@@ -802,7 +859,7 @@ def drivers_analysis():
                 if st.button("Download Drivers-bussy time"):
                     sorted_pivot_df.to_excel('drivers_pivot-busy time.xlsx', sheet_name='Sheet1', index=True)
                     
-                                
+            
                
                 
             elif selected_option == "Top 10 Riders":
