@@ -912,22 +912,21 @@ def rejected_orders():
             if upload.type == 'application/vnd.ms-excel':
                 df = pd.read_excel(upload, engine='openpyxl')
             else:
-                df= pd.read_csv(upload)
+                df = pd.read_csv(upload)
                 
-               
-                st.write("Data loaded successfully")
-                  
-                #rejeted orders
-                rejected_orders = df.loc[df['STATE'] == 'Rejected'][['ID', 'BUSINESS NAME', 'CUSTOMER NAME', 'CUSTOMER ADDRESS', 'PRODUCTS', 'SUBTOTAL', 'DELIVERY FEE', 'DELIVERY TIME', 'REJECTED HOUR', 'MESSAGES']]
-                st.write("Rejected Orders:")
-               
-                
-            # Create a multiselect widget to filter columns
-            show_data = st.multiselect('Filter:', df.columns, default=["ID", "BUSINESS NAME", "CUSTOMER NAME", "CUSTOMER ADDRESS", "PRODUCTS", "SUBTOTAL", "DELIVERY FEE", "DELIVERY TIME", "REJECTED HOUR", "MESSAGES"])
+            st.write("Data loaded successfully")
+              
+            # Rejected orders
+            rejected_orders = df.loc[df['STATE'] == 'Rejected'][['ID', 'BUSINESS NAME','PRODUCTS', 'SUBTOTAL','MESSAGES']]
+            st.write("Rejected Orders:")
             
-            # Display the DataFrame with selected columns
-            st.dataframe(rejected_orders[show_data], use_container_width=True)           
-                  
+            # Create a multiselect widget to filter columns
+            show_data = st.multiselect('Filter:', df.columns, default=['ID', 'BUSINESS NAME','PRODUCTS', 'SUBTOTAL','MESSAGES'])
+            
+            # Display the DataFrame with selected columns for rejected orders
+            st.dataframe(rejected_orders[show_data], use_container_width=True)
+            
+            # Function to download rejected orders summary
             def download_excel(dataframe):
                 # Write the Excel file to a buffer
                 excel_buffer = BytesIO()
@@ -943,11 +942,37 @@ def rejected_orders():
                 # Display download link
                 st.markdown(href, unsafe_allow_html=True)
             
-            # Display the download button
+            # Display the download button for rejected orders
             if st.button("Download Rejected Orders Summary"):
-                download_excel(rejected_orders)            
-                        
+                download_excel(rejected_orders)  
                 
+            # Failed orders
+            failed_orders = df.loc[df['STATE'] == 'Delivery Failed By Driver'][['ID', 'BUSINESS NAME','PRODUCTS', 'SUBTOTAL','MESSAGES']]
+            st.write("Failed Orders:")  
+            
+            # Display the DataFrame with selected columns for failed orders
+            st.dataframe(failed_orders[show_data], use_container_width=True)     
+            
+            # Function to download failed orders summary
+            def download_excel_failed(dataframe):
+                # Write the Excel file to a buffer
+                excel_buffer = BytesIO()
+                dataframe.to_excel(excel_buffer, index=False)  # Index is False to exclude index column
+                excel_buffer.seek(0)
+                
+                # Encode the Excel data as base64
+                b64 = base64.b64encode(excel_buffer.read()).decode()
+                
+                # Create download link
+                href = f'<a href="data:application/octet-stream;base64,{b64}" download="failed_orders_summary.xlsx">Download Excel File</a>'
+                
+                # Display download link
+                st.markdown(href, unsafe_allow_html=True)
+            
+            # Display the download button for failed orders
+            if st.button("Download Failed Orders Summary"):
+                download_excel_failed(failed_orders)    
+            
             # Add a text input for search query
             search_query = st.text_input("Search by Order ID or Business Name:")
             
@@ -966,9 +991,6 @@ def rejected_orders():
                 else:
                     st.write("No matching orders found.")
                     
-                
-       
-
         except Exception as e:
             st.write("Error loading the file. Please make sure it's a valid CSV or Excel file.")
             st.write(e)
