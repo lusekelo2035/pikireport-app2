@@ -61,6 +61,11 @@ def set_style():
         unsafe_allow_html=True
     )
 
+st.set_page_config(page_title="pikireport",page_icon="📋")
+
+theme_plotly = None
+
+
 # Main function
 def main():
     set_style()
