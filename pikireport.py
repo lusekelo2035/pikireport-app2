@@ -61,6 +61,7 @@ def set_style():
         unsafe_allow_html=True
     )
 
+
 st.set_page_config(page_title="pikireport",page_icon="📋")
 
 theme_plotly = None
@@ -297,7 +298,7 @@ def delivery_time():
             df2['PICKUP HOUR'] = pd.to_datetime(df2['PICKUP HOUR'])
             df2['DELIVERY HOUR'] = pd.to_datetime(df2['DELIVERY HOUR'])
 
-# Calculate time differences in minutes using df2 and df['ASSIGNED HOURS']
+            # Calculate time differences in minutes using df2 and df['ASSIGNED HOURS']
             df2['Accepted by Business'] = (df2['ACCEPTED BUSINESS HOUR'] - df2['DELIVERY TIME']).dt.total_seconds() / 60
             df2['Assigned Time'] = (df2['ASSIGNED HOUR'] - df2['DELIVERY TIME']).dt.total_seconds() / 60
             df2['Accepted by Driver'] = (df2['ACCEPTED DRIVER HOUR'] - df2['ASSIGNED HOUR']).dt.total_seconds() / 60
@@ -306,8 +307,7 @@ def delivery_time():
             df2['Pickup to Customer'] = (df2['DELIVERY HOUR'] - df2['PICKUP HOUR']).dt.total_seconds() / 60
             df2['Average Delivery Time'] = (df2['DELIVERY HOUR'] - df2['DELIVERY TIME']).dt.total_seconds() / 60
 
-# Handle negative values as specifie
-
+           
             # Handle negative values as specified using df2
             df2['Accepted by Business'] = df2['Accepted by Business'].mask(df2['Accepted by Business'] < 0, 2)
             df2['Accepted by Business'] = df2['Accepted by Business'].mask(df2['Accepted by Business'] > 60, 60)
@@ -347,8 +347,7 @@ def delivery_time():
 
                 df2['DELIVERY TIME'] = pd.to_datetime(df2['DELIVERY TIME'])
                 df2['HOURS'] = df2['DELIVERY TIME'].dt.hour
-                                               
-                                             
+                
                 pivot_table_df2 = df2.pivot_table(
                     index='BUSINESS CITY',
                     values=['STATE', 'DRIVER ID', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
@@ -365,10 +364,8 @@ def delivery_time():
                     margins=True
                 ).round(1)
                 
-                # Rename columns if necessary
                 pivot_table_df2.rename(columns={'STATE': 'Total Orders', 'DRIVER ID': 'Total Drivers'}, inplace=True)
                 
-                # Reorder the columns if necessary
                 column_order = ['Total Orders', 'Total Drivers', 'Accepted by Business', 'Assigned Time',
                                 'Accepted by Driver', 'Driver to Business', 'Driver in Business', 'Pickup to Customer',
                                 'Average Delivery Time']
@@ -378,32 +375,19 @@ def delivery_time():
                 st.write("Table of Delivery Time Metrics:")
                 st.write(pivot_table_df2)
                 
-                # Function to handle file download
-                def download_excel(dataframe):
-                    # Write the Excel file to a buffer
+                def download_excel(dataframe, filename):
                     excel_buffer = BytesIO()
                     dataframe.to_excel(excel_buffer, index=True)
                     excel_buffer.seek(0)
-                    
-                    # Encode the Excel data as base64
                     b64 = base64.b64encode(excel_buffer.read()).decode()
-                    
-                    # Create download link
-                    href = f'<a href="data:application/octet-stream;base64,{b64}" download="delivery_time_metrics.xlsx">Download Excel File</a>'
-                    
-                    # Display download link
+                    href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">Download Excel File</a>'
                     st.markdown(href, unsafe_allow_html=True)
                 
-                # Display the download button
                 if st.button("Download Delivery Time Metrics"):
-                    download_excel(pivot_table_df2)
-                    
-                    
-
-                    
-                #pivot Hours
+                    download_excel(pivot_table_df2, "delivery_time_metrics.xlsx")
+                
                 pivot_table_hours = df2.pivot_table(
-                    index='HOURS',  # Set the index to the 'HOURS' column
+                    index='HOURS',
                     values=['STATE', 'DRIVER ID', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
                             'Driver to Business', 'Driver in Business', 'Pickup to Customer', 'Average Delivery Time'],
                     aggfunc={'STATE': 'count',
@@ -418,20 +402,16 @@ def delivery_time():
                     margins=True
                 ).round(1)
                 
-                # Rename columns 
                 pivot_table_hours.rename(columns={'STATE': 'Total Orders', 'DRIVER ID': 'Total Drivers'}, inplace=True)
-                
-                # Reorder the columns 
-                column_order = ['Total Orders', 'Total Drivers', 'Accepted by Business', 'Assigned Time',
-                                'Accepted by Driver', 'Driver to Business', 'Driver in Business', 'Pickup to Customer',
-                                'Average Delivery Time']
                 
                 pivot_table_hours = pivot_table_hours[column_order]
                 
                 st.write("Pivot Table of Delivery Time Metrics by Hours:")
                 st.write(pivot_table_hours)
-                                                     
-            
+                
+                if st.button("Download Delivery Time Metrics by Hours"):
+                    download_excel(pivot_table_hours, "delivery_time_metrics_by_hours.xlsx")        
+                            
             
                 explode = (0.1, 0, 0, 0, 0, 0)
                 bins = [0, 40, 45, 60, 90, 119, float('inf')]
