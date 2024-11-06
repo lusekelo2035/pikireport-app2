@@ -147,13 +147,25 @@ def main():
         rejected_orders()
         
     st.sidebar.image(
-        "https://unsplash.com/photos/PDTB9aSavn4/download?ixid=M3wxMjA3fDB8MXx0b3BpY3x8eGpQUjRobGtCR0F8fHx8fDJ8fDE3MjkxNjgwMDF8&force=true", 
+        #"https://unsplash.com/photos/50yZdrpM_ec/download?ixid=M3wxMjA3fDB8MXxzZWFyY2h8N3x8ZGVsaXZlcnklMjBtb3RvcnxlbnwwfHx8fDE3MzA3MTMxNDd8MA&force=true"
+        "https://media.istockphoto.com/id/1296986175/photo/young-man-working-for-a-food-delivery-service-checking-with-road-motorcycle-in-the-city.jpg?s=2048x2048&w=is&k=20&c=Jg03jmHONRuVF_LJSxC1Y87-6DXzc930GzJVI1wUMWU=", 
         use_column_width=True, 
         caption="Piki Delivery",
     )
 
     
     
+    
+# Updated download function to accept filename as an argument
+def download_excel(dataframe, filename="download.xlsx"):
+    excel_buffer = BytesIO()
+    dataframe.to_excel(excel_buffer, index=False)
+    excel_buffer.seek(0)
+    b64 = base64.b64encode(excel_buffer.read()).decode()
+    href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">Download {filename}</a>'
+    st.markdown(href, unsafe_allow_html=True)    
+
+
 def data_analysis():
     st.title("DATA SUMMARY")
     # File uploader for CSV or Excel
@@ -187,17 +199,54 @@ def data_analysis():
             st.table(state_summary)
 
             # Download Button for Order Status Summary
-            def download_excel(dataframe):
-                excel_buffer = BytesIO()
-                dataframe.to_excel(excel_buffer, index=False)
-                excel_buffer.seek(0)
-                b64 = base64.b64encode(excel_buffer.read()).decode()
-                href = f'<a href="data:application/octet-stream;base64,{b64}" download="order_status_summary.xlsx">Download Order Status Summary</a>'
-                st.markdown(href, unsafe_allow_html=True)
-
             if st.button("Download Order Status Summary"):
-                download_excel(state_summary)
+                download_excel(state_summary, "order_status_summary.xlsx")
 
+            # ---- Custom Analysis for Business City and Order Status ----
+            # Map specific states to new columns using multiple conditions
+            data['ORDER STATUS'] = np.where(
+                data['STATE'].isin(['Delivery Completed By Driver']),
+                'DELIVERY COMPLETED BY DRIVER',
+                np.where(
+                    data['STATE'].isin(['Rejected', 'Rejected by Driver', 'Rejected by Business']),
+                    'REJECTED',
+                    np.where(
+                        data['STATE'].isin(['Completed', 'Pickup completed by customer']),
+                        'PICKUP ORDERS',
+                        np.where(
+                            data['STATE'].isin(['Delivery Failed By Driver', 'Not picked by customer', 'Pickup Failed By Driver']),
+                            'DELIVERY FAILED BY DRIVER',
+                            np.nan
+                        )
+                    )
+                )
+            )
+
+            # Filter data to include only rows with mapped order statuses
+            data_filtered = data.dropna(subset=['ORDER STATUS'])
+
+            # Create pivot table
+            order_status_summary = data_filtered.pivot_table(
+                index='BUSINESS CITY',
+                columns='ORDER STATUS',
+                values='ID',
+                aggfunc='count',
+                margins=True
+            ).fillna(0).astype(int)
+
+            # Rename "All" to "Total" for clarity
+            order_status_summary.rename(index={'All': 'Total'}, inplace=True)
+
+            # Display only relevant columns
+            st.markdown("### Order Status by Business City")
+            st.table(order_status_summary[['DELIVERY COMPLETED BY DRIVER', 'REJECTED', 'PICKUP ORDERS', 'DELIVERY FAILED BY DRIVER', 'All']])
+
+            # Download button for the pivot table
+            if st.button("Download Order Status by Business City"):
+                download_excel(order_status_summary.reset_index(), "order_status_by_city.xlsx")
+
+
+            data = data[data['STATE'] == 'Delivery Completed By Driver'].copy()
             # ---- Sales Report ----
             st.markdown("## Sales Report")
 
@@ -435,6 +484,8 @@ def delivery_time():
             st.write(f"Total Rows: {total_rows}")
             download_excel(issues_pivot, "orders_with_issues.xlsx")
 
+
+
             # Actual Delivery Time Analysis for Non-Issue Orders
             st.write("### Actual Delivery Time Analysis")
             non_issue_orders['HOURS'] = non_issue_orders['DELIVERY TIME'].dt.hour
@@ -464,9 +515,123 @@ def delivery_time():
                 'Pickup to Customer', 'Average Delivery Time'
             ]
             non_issue_pivot = non_issue_pivot[column_order]
+            non_issue_pivot.reset_index(inplace=True)
 
             st.write(non_issue_pivot)
             download_excel(non_issue_pivot, "actual_delivery_time_analysis.xlsx")
+            
+            
+            
+            # Identify and categorize issues
+            df['Issues'] = df.apply(categorize_issues, axis=1)
+
+            # Pivot Table for Total Delivery Time (Including Issue and Non-Issue Orders)
+            st.write("### Total Delivery Time (Including Issue and Non-Issue Orders)")
+            total_delivery_pivot = df.pivot_table(
+                index='BUSINESS CITY',
+                values=[
+                    'STATE', 'DRIVER ID', 'Accepted by Business', 'Assigned Time',
+                    'Accepted by Driver', 'Driver to Business', 'Driver in Business',
+                    'Pickup to Customer', 'Average Delivery Time'
+                ],
+                aggfunc={
+                    'STATE': 'count',  # Total Orders
+                    'DRIVER ID': 'nunique',  # Total Drivers
+                    'Accepted by Business': 'mean',
+                    'Assigned Time': 'mean',
+                    'Accepted by Driver': 'mean',
+                    'Driver to Business': 'mean',
+                    'Driver in Business': 'mean',
+                    'Pickup to Customer': 'mean',
+                    'Average Delivery Time': 'mean'
+                },
+                margins=True
+            ).round(1)
+
+            # Rename columns and arrange in the desired order
+            total_delivery_pivot.rename(columns={'STATE': 'Total Orders', 'DRIVER ID': 'Total Drivers'}, inplace=True)
+
+            column_order = [
+                'Total Orders', 'Total Drivers', 'Accepted by Business', 'Assigned Time',
+                'Accepted by Driver', 'Driver to Business', 'Driver in Business',
+                'Pickup to Customer', 'Average Delivery Time'
+            ]
+
+            total_delivery_pivot = total_delivery_pivot[column_order]
+
+            # Reset index to include 'BUSINESS CITY' as a column in the Excel output
+            total_delivery_pivot.reset_index(inplace=True)
+
+            st.write(total_delivery_pivot)
+            download_excel(total_delivery_pivot, "total_delivery_time.xlsx")
+            
+            
+            #PRE ORDER ANALYSIS
+            # Ensure datetime columns are in the correct format
+            df['DELIVERY TIME'] = pd.to_datetime(df['DELIVERY TIME'])  # Expected time (target time)
+            df['DELIVERY HOUR'] = pd.to_datetime(df['DELIVERY HOUR'])  # Actual delivery time
+            df['ACCEPTED BUSINESS HOUR'] = pd.to_datetime(df['ACCEPTED BUSINESS HOUR'])
+        
+            # Step 1: Identify Pre-orders (using the existing condition)
+            df['PRE ORDERS'] = df['ACCEPTED BUSINESS HOUR'] < df['DELIVERY TIME']
+        
+            # Step 2: Calculate In Progress Time (difference between delivery hour and accepted business hour)
+            df['IN PROGRESS TIME'] = (df['DELIVERY HOUR'] - df['ACCEPTED BUSINESS HOUR']).dt.total_seconds() / 60  # Time in minutes
+        
+            # Step 3: Calculate Time Difference (actual delivery vs scheduled delivery)
+            df['TIME DIFFERENCE'] = (df['DELIVERY HOUR'] - df['DELIVERY TIME']).dt.total_seconds() / 60  # Time in minutes
+        
+            # Step 4: Calculate Time Deviation (absolute value of time difference)
+            df['TIME DEVIATION'] = df['TIME DIFFERENCE'].abs()
+        
+            # Step 5: Add a Comment Column based on the deviation
+            conditions = [
+                (df['TIME DEVIATION'] <= 10),  # Within ±10 minutes
+                (df['TIME DIFFERENCE'] < -10), # Early by more than 10 minutes
+                (df['TIME DIFFERENCE'] > 10)   # Late by more than 10 minutes
+            ]
+            comments = ['On Time', 'Early', 'Late']
+            df['COMMENT'] = np.select(conditions, comments, default='Unknown')
+        
+            # Step 6: Filter the DataFrame for pre-orders only
+            pre_orders_df = df[df['PRE ORDERS'] == True]
+        
+            # Step 7: Rename columns with professional names
+            pre_orders_df = pre_orders_df.rename(columns={
+                'DELIVERY TIME': 'Expected Time',          # Time customer expects to receive the order
+                'DELIVERY HOUR': 'Actual Delivery Time',   # Time when order was actually delivered
+                'TIME DIFFERENCE': 'Time Difference',
+                'TIME DEVIATION': 'Time Deviation'
+            })
+        
+            # Convert 'Actual Delivery Time' to show only time (no date)
+            pre_orders_df['Actual Delivery Time'] = pre_orders_df['Actual Delivery Time'].dt.time
+            pre_orders_df['Expected Time'] = pre_orders_df['Expected Time'].dt.time
+        
+            # Step 8: Create a pivot table with the specified columns
+            pivot_table = pre_orders_df.pivot_table(
+                index='ID',
+                values=['BUSINESS NAME', 'Expected Time', 'Actual Delivery Time', 'IN PROGRESS TIME', 'Time Difference', 'Time Deviation', 'COMMENT'],
+                aggfunc='first'
+            )
+        
+        
+            # Step 10: Rearrange the columns in the specified order
+            pivot_table = pivot_table[['BUSINESS NAME', 'Expected Time', 'Actual Delivery Time', 'IN PROGRESS TIME', 'Time Difference', 'Time Deviation', 'COMMENT']]
+        
+            # Step 11: Format numeric columns to one decimal place
+            numeric_columns = ['IN PROGRESS TIME', 'Time Difference', 'Time Deviation']
+            pivot_table[numeric_columns] = pivot_table[numeric_columns].round(1)
+        
+            # Display the pivot table
+            st.write("### Pre-orders Analysis")
+            st.write(pivot_table)
+        
+            # Step 12: Provide download button for the pivot table
+            download_excel(pivot_table.reset_index(), "Pre_Orders_Analysis.xlsx")
+                          
+            
+            
             
             
             
@@ -483,14 +648,20 @@ def delivery_time():
                 'Pickup to Customer', 'Average Delivery Time'
             ]
             
-            # Generate pivot tables and add download buttons for each special zone
+           
+        
+            
+            # Special Zones Analysis
+            st.write("### Delivery Analysis for Special Zones (Mlimani, Mbezi, Mikocheni)")
+            special_zones = df[df['BUSINESS CITY'].isin(['Mlimani', 'Mbezi', 'Mikocheni'])]
+
             for zone in ['Mlimani', 'Mbezi', 'Mikocheni']:
                 st.subheader(f"--- Delivery Analysis for {zone} ---")
-            
+
                 # Filter data for the specific zone
                 zone_data = special_zones[special_zones['BUSINESS CITY'] == zone]
-            
-                # Create the pivot table
+
+                # Create the pivot table for each zone
                 pivot = zone_data.pivot_table(
                     index='Distance Category',
                     values=[
@@ -510,28 +681,26 @@ def delivery_time():
                     },
                     margins=True
                 ).round(1)
-            
-                # Rename 'STATE' to 'Total Orders'
+
+                # Rename and arrange the columns
                 pivot.rename(columns={'STATE': 'Total Orders'}, inplace=True)
-            
-                # Rearrange the columns
                 pivot = pivot[column_order]
-            
-                # Display the pivot table
-                st.write(f"**Pivot Table: {zone}**")
-                st.dataframe(pivot)
-            
-                # Provide an Excel download button for each pivot table
+
+                # Display and download the pivot table with index
+                st.write(pivot)
                 filename = f"{zone}_Delivery_Analysis.xlsx"
-                download_excel(pivot, filename)
-            
-                # Plotting Average Delivery Time vs Distance Category
+                download_excel(pivot.reset_index(), filename)
+
+                # Plot Average Delivery Time vs Distance Category
                 st.write(f"**Average Delivery Time vs Distance for {zone}**")
                 chart_data = pivot[:-1]['Average Delivery Time'].reset_index()  # Exclude 'All' row for chart
                 st.bar_chart(chart_data, x='Distance Category', y='Average Delivery Time')
 
-            
+           
 
+          
+            st.write("Delivery Time Categorization:")
+            #st.subheader(f"--- Delivery Time Categorizatio ---")
             # Delivery Time Categorization
             explode = (0.1, 0, 0, 0, 0, 0)
             bins = [0, 40, 45, 60, 90, 119, float('inf')]
@@ -580,7 +749,7 @@ def delivery_time():
             if st.button("Download Delivery Time Categories"):
                 download_excel(results, "Delivery_Time_Categories.xlsx")
                 
-                
+                    
                 
 
         except Exception as e:
