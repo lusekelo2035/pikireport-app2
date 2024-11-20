@@ -1,5 +1,7 @@
 streamlit==1.25.0
 pandas==1.5.3
+numpy==1.23.5
 seaborn==0.12.2
 matplotlib>=3.3.2
 openpyxl==3.0.9
+folium==0.14.0
