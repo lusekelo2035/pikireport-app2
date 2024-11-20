@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import base64
 from math import radians, sin, cos, sqrt, atan2
+import folium
+from folium.plugins import HeatMap
 
 
 st.set_page_config(page_title="Piki Report", page_icon="📋", layout="wide")
@@ -406,8 +408,9 @@ def calculate_distances(df):
     df['DISTANCE (km)'] = distances
 
     # Define distance bins and labels
-    bins = [0, 1, 3, 5, 7, np.inf]
-    labels = ['0-1 km', '1-3 km', '3-5 km', '5-7 km', '7+ km']
+    bins = [0, 2, 3, 4, 5, 7, float('inf')]
+    labels = ['0-2 km', '2-3 km', '3-4 km', '4-5 km', '5-7 km', '7+ km']
+
 
     # Create the 'Distance Category' column
     df['Distance Category'] = pd.cut(df['DISTANCE (km)'], bins=bins, labels=labels)
@@ -641,27 +644,39 @@ def delivery_time():
             # Filter the DataFrame for the three special zones
             special_zones = df[df['BUSINESS CITY'].isin(['Mlimani', 'Mbezi', 'Mikocheni'])]
             
-            # Define the column order
-            column_order = [
-                'Total Orders', 'Accepted by Business', 'Assigned Time', 
-                'Accepted by Driver', 'Driver to Business', 'Driver in Business',
-                'Pickup to Customer', 'Average Delivery Time'
-            ]
-            
-           
-        
-            
             # Special Zones Analysis
             st.write("### Delivery Analysis for Special Zones (Mlimani, Mbezi, Mikocheni)")
-            special_zones = df[df['BUSINESS CITY'].isin(['Mlimani', 'Mbezi', 'Mikocheni'])]
-
+            
             for zone in ['Mlimani', 'Mbezi', 'Mikocheni']:
                 st.subheader(f"--- Delivery Analysis for {zone} ---")
-
+            
                 # Filter data for the specific zone
                 zone_data = special_zones[special_zones['BUSINESS CITY'] == zone]
-
-                # Create the pivot table for each zone
+            
+                # Create a heatmap for each zone
+                heat_data_list = zone_data[['CUSTOMER LATITUDE', 'CUSTOMER LONGITUDE']].dropna().values.tolist()
+                zone_map = folium.Map(location=[-6.8018, 39.2801], zoom_start=14)  # Adjust center as needed
+                HeatMap(heat_data_list, radius=15, blur=10, max_zoom=1).add_to(zone_map)
+            
+                # Save and display the map in Streamlit
+                map_filename = f"{zone}_heatmap.html"
+                zone_map.save(map_filename)
+                st.header(f"Customer Location Heatmap for {zone}")
+                st.components.v1.html(zone_map._repr_html_(), height=600)
+            
+                # Optionally, provide a download link for the heatmap
+                def download_map(filename):
+                    with open(filename, 'r') as file:
+                        map_data = file.read()
+                    b64 = base64.b64encode(map_data.encode()).decode()
+                    href = f'<a href="data:text/html;base64,{b64}" download="{filename}">Download Heatmap for {zone}</a>'
+                    st.markdown(href, unsafe_allow_html=True)
+            
+                # Button to download the heatmap HTML
+                if st.button(f"Download Heatmap for {zone}"):
+                    download_map(map_filename)
+            
+                # Create the pivot table for the specific zone
                 pivot = zone_data.pivot_table(
                     index='Distance Category',
                     values=[
@@ -681,22 +696,28 @@ def delivery_time():
                     },
                     margins=True
                 ).round(1)
-
+            
                 # Rename and arrange the columns
+                column_order = [
+                    'Total Orders', 'Accepted by Business', 'Assigned Time', 
+                    'Accepted by Driver', 'Driver to Business', 'Driver in Business',
+                    'Pickup to Customer', 'Average Delivery Time'
+                ]
                 pivot.rename(columns={'STATE': 'Total Orders'}, inplace=True)
                 pivot = pivot[column_order]
-
-                # Display and download the pivot table with index
+            
+                # Display the pivot table
                 st.write(pivot)
+            
+                # Provide a download option for the pivot table
                 filename = f"{zone}_Delivery_Analysis.xlsx"
                 download_excel(pivot.reset_index(), filename)
-
+            
                 # Plot Average Delivery Time vs Distance Category
                 st.write(f"**Average Delivery Time vs Distance for {zone}**")
                 chart_data = pivot[:-1]['Average Delivery Time'].reset_index()  # Exclude 'All' row for chart
                 st.bar_chart(chart_data, x='Distance Category', y='Average Delivery Time')
 
-           
 
           
             st.write("Delivery Time Categorization:")
@@ -755,12 +776,26 @@ def delivery_time():
         except Exception as e:
             st.error(f"An error occurred: {e}")
 
-                      
-            
+
+
+
+                
 def drivers_analysis():
-    # Function to display drivers analysis content
-    st.write("Drivers Analysis Content")
-    
+    st.title("Drivers Analysis 🚴")
+
+    # Sub-navigation for daily and weekly report
+    sub_nav = st.radio("Select Report Type", ["Daily Report", "Weekly Report"])
+
+    if sub_nav == "Daily Report":
+        daily_report()
+    elif sub_nav == "Weekly Report":
+        weekly_report()
+
+
+# Daily Report Function
+def daily_report():
+    st.markdown("### Daily Report for Drivers")
+
     upload = st.file_uploader("Upload Your Dataset (In CSV or Excel Format)", type=["csv", "xlsx"])
 
     if upload is not None:
@@ -770,9 +805,9 @@ def drivers_analysis():
                 df = pd.read_excel(upload, engine='openpyxl')
             else:
                 df = pd.read_csv(upload)
-                
-                # Filter relevant rows
-            df = df[df['STATE'] == 'Delivery Completed By Driver'].copy()
+
+            # Filter relevant rows
+            df = df[df['STATE'] == 'Delivery Completed By Driver'].copy()      
         
             # Convert time columns to datetime
             datetime_cols = [
@@ -866,10 +901,7 @@ def drivers_analysis():
             top_10_riders.columns = ['Driver Name', 'Number of Orders']
             st.table(top_10_riders)
         
-            fig, ax = plt.subplots()
-            sns.barplot(data=top_10_riders, y='Driver Name', x='Number of Orders', ax=ax)
-            st.pyplot(fig)
-        
+ 
         
             # 3. Driver Performance
             st.header("Driver Performance")
@@ -939,28 +971,121 @@ def drivers_analysis():
             st.write("Driver Performance Summary:")
             st.table(filtered_driver_performance)
             
-            unique_driver_names = df['DRIVER NAME'].unique()
             
-                        
-            # Create a dropdown select box for choosing the driver name
+            df = calculate_distances(df)
+            # Dropdown for selecting a driver
+            unique_driver_names = df['DRIVER NAME'].dropna().unique()
             selected_driver_name = st.selectbox("Select Driver Name:", unique_driver_names)
+                                   
+
+            if selected_driver_name:
+                # Filter dataframe by selected driver
+                selected_driver_df = df[df['DRIVER NAME'] == selected_driver_name]
+                
+                if not selected_driver_df.empty:
+                    st.write(f"Orders for {selected_driver_name}:")
+                    
+                    # Display the relevant columns, including the newly added 'Distance (km)' and 'Distance Category'
+                    st.write(selected_driver_df[['ID', 'BUSINESS NAME', 'DELIVERY DATE', 'DISTANCE (km)', 'Distance Category',
+                                                 'Accepted by Business', 'Assigned Time', 'Accepted by Driver', 
+                                                 'Driver to Business', 'Driver in Business', 'Pickup to Customer', 
+                                                 'Average Delivery Time']])
+                    
+                    
+                    
+                    
+                    # Create a pivot table by Distance Category
+                    pivot_df = selected_driver_df.pivot_table(
+                        index='Distance Category',
+                        values=['ID', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver', 
+                                'Driver to Business', 'Driver in Business', 'Pickup to Customer', 
+                                'Average Delivery Time'],
+                        aggfunc={'ID': 'count', 
+                                 'Accepted by Business': 'mean', 
+                                 'Assigned Time': 'mean', 
+                                 'Accepted by Driver': 'mean', 
+                                 'Driver to Business': 'mean', 
+                                 'Driver in Business': 'mean', 
+                                 'Pickup to Customer': 'mean', 
+                                 'Average Delivery Time': 'mean'},
+                        margins=True
+                    ).rename(columns={'ID': 'Number of Orders', 
+                                      'Average Delivery Time': 'Average Delivery Time (mins)'})
+                    
+                    # Reorder the columns
+                    column_order = ['Number of Orders', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver', 
+                                    'Driver to Business', 'Driver in Business', 'Pickup to Customer', 'Average Delivery Time (mins)']
+                    
+                    # Apply the new column order to the pivot table
+                    pivot_df = pivot_df[column_order]
+                    
+                    # Display the pivot table with the desired column order
+                    st.write("Driver Performance by Distance Category:")
+                    st.write(pivot_df)
+                    
+                    
+                    # Pie chart for number of orders by Distance Category
+                    order_counts = pivot_df['Number of Orders'].drop('All')  # Remove the "All" row for total orders
+                    labels = order_counts.index
+                    sizes = order_counts.values
+                    
+                    # Create the pie chart
+                    fig, ax = plt.subplots()
+                    ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=sns.color_palette("Set2", len(labels)))
+                    ax.axis('equal')  # Equal aspect ratio ensures that pie chart is circular.
+                    
+                    # Display the pie chart
+                    st.header("Orders by Distance Category (Pie Chart)")
+                    st.pyplot(fig)
+
+
+                    # Assuming the data for the selected driver has been filtered and stored in 'selected_driver_df'
+                    # Make sure the relevant columns are available
+                    heat_data_list = selected_driver_df[['CUSTOMER LATITUDE', 'CUSTOMER LONGITUDE']].dropna().values.tolist()
+                    
+                    # Step 3: Create a Base Map
+                    # Center the map around an appropriate location (e.g., driver's deliveries or a fixed location)
+                    # Here, we use a central location for the driver's deliveries; adjust as needed
+                    m = folium.Map(location=[-6.8018, 39.2801], zoom_start=14)
+                    
+                    # Step 4: Add HeatMap Layer
+                    # Ensure heatmap visibility with appropriate parameters
+                    HeatMap(heat_data_list, radius=15, blur=10, max_zoom=1).add_to(m)
+                    
+                    # Step 5: Display the map (if running in a Streamlit environment)
+                    # Save the map as an HTML file to be embedded or downloaded
+                    map_filename = "driver_heatmap.html"
+                    m.save(map_filename)
+                    
+                    # Display the map (in Streamlit)
+                    st.header("Customer Location Heatmap for the Selected Driver")
+                    st.components.v1.html(m._repr_html_(), height=600)
+                    
+                    # Optionally, provide a download link for the heatmap
+                    def download_map(filename):
+                        with open(filename, 'r') as file:
+                            map_data = file.read()
+                        b64 = base64.b64encode(map_data.encode()).decode()
+                        href = f'<a href="data:text/html;base64,{b64}" download="{filename}">Download the Heatmap</a>'
+                        st.markdown(href, unsafe_allow_html=True)
+                    
+                    # Button to download the heatmap HTML
+                    if st.button(f"Download Heatmap for {selected_driver_name}"):
+                        download_map(map_filename)
+
+                    
+                    # Function to download Excel file
+                    def download_excel(dataframe, filename="selected_driver_performance.xlsx"):
+                        excel_buffer = BytesIO()
+                        dataframe.to_excel(excel_buffer, index=True)
+                        excel_buffer.seek(0)
+                        b64 = base64.b64encode(excel_buffer.read()).decode()
+                        href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">Download {filename}</a>'
+                        st.markdown(href, unsafe_allow_html=True)
             
-            # Filter the DataFrame based on the selected driver name
-            filtered_orders = df[df['DRIVER NAME'] == selected_driver_name]
-            
-            # Display the list of orders for the selected driver
-            if not filtered_orders.empty:
-                st.write("Orders for Selected Driver:")
-                st.write(filtered_orders[['ID', 'BUSINESS NAME', 'Accepted by Business', 'Assigned Time', 
-                                          'Accepted by Driver', 'Driver to Business', 'Driver in Business', 
-                                          'Pickup to Customer', 'Average Delivery Time']])
-            
-                # Display total number of orders
-                st.write(f"Total Orders: {len(filtered_orders)}")
-            else:
-                st.write("No orders found for the selected driver.")
-            # Display the driver performance pivot table
-        
+                    # Download button for the filtered data
+                    if st.button(f"Download Pivot Table for {selected_driver_name}"):
+                        download_excel(selected_driver_df)
         
             # 4. Driver Working Hours
             st.header("Driver Working Hours")
@@ -1015,11 +1140,293 @@ def drivers_analysis():
             # Add a button to download the pivot table as an Excel file
             if st.button("Download Drivers-bussy time"):
                 sorted_pivot_df.to_excel('drivers_pivot-busy time.xlsx', sheet_name='Sheet1', index=True)
-          
-        
+                
+                
         except Exception as e:
             st.error(f"Error loading the file: {e}")
+            
+                
+def weekly_report():
+    st.markdown("### Weekly Report for Drivers")
+
+    # File uploader
+    upload = st.file_uploader("Upload Your Dataset (In CSV or Excel Format)", type=["csv", "xlsx"])
+
+    if upload is not None:
+        try:
+            # Check the file type and read the data
+            if upload.type == 'application/vnd.ms-excel':
+                df = pd.read_excel(upload, engine='openpyxl')
+            else:
+                df = pd.read_csv(upload)
+
+            # Ensure all required columns are present
+            required_columns = [
+                'DRIVER NAME', 'ID', 'STATE', 'DELIVERY TIME', 'BUSINESS NAME'
+            ]
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                st.error(f"The following columns are missing from the dataset: {', '.join(missing_columns)}")
+                return
+
+            # Ensure 'DELIVERY TIME' is in datetime format
+            df['DELIVERY TIME'] = pd.to_datetime(df['DELIVERY TIME'], errors='coerce')
+            df['DELIVERY DATE'] = df['DELIVERY TIME'].dt.date
+
+            # Filter relevant rows
+            df = df[df['STATE'] == 'Delivery Completed By Driver'].copy()      
+        
+            # Convert time columns to datetime
+            datetime_cols = [
+                'DELIVERY TIME', 'ACCEPTED BUSINESS HOUR', 'ASSIGNED HOUR',
+                'ACCEPTED DRIVER HOUR', 'IN BUSINESS HOUR', 'PICKUP HOUR', 'DELIVERY HOUR'
+            ]
+            df[datetime_cols] = df[datetime_cols].apply(pd.to_datetime)
+        
+            # Calculate various time metrics
+            time_calculations = [
+                ('Accepted by Business', 'ACCEPTED BUSINESS HOUR', 'DELIVERY TIME', 0),
+                ('Assigned Time', 'ASSIGNED HOUR', 'ACCEPTED BUSINESS HOUR', 3),
+                ('Accepted by Driver', 'ACCEPTED DRIVER HOUR', 'ASSIGNED HOUR', 3),
+                ('Driver to Business', 'IN BUSINESS HOUR', 'ACCEPTED DRIVER HOUR', 7),
+                ('Driver in Business', 'PICKUP HOUR', 'IN BUSINESS HOUR', 15),
+                ('Pickup to Customer', 'DELIVERY HOUR', 'PICKUP HOUR', 15),
+                ('Average Delivery Time', 'DELIVERY HOUR', 'DELIVERY TIME', 40)
+            ]
+            for name, end, start, default in time_calculations:
+                df[name] = (df[end] - df[start]).dt.total_seconds() / 60
+                df[name] = df[name].mask(df[name] < 0, default)
+
+
+
+
+            # 1. Top 10 Riders
+            st.header("Top 10 Riders")
+            top_10_riders = df.groupby('DRIVER NAME')['ID'].count().nlargest(10).reset_index()
+            top_10_riders.columns = ['Driver Name', 'Number of Orders']
+            st.table(top_10_riders)
+
+
+            # 3. Driver Performance
+            st.header("Driver Performance")
+            driver_performance_pivot = pd.pivot_table(df,
+            index='DRIVER NAME',
+            values=['STATE', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
+                    'Driver to Business', 'Driver in Business', 'Pickup to Customer', 'Average Delivery Time'],
+            aggfunc={'STATE': 'count',
+                     'Accepted by Business': 'mean',
+                     'Assigned Time': 'mean',
+                     'Accepted by Driver': 'mean',
+                     'Driver to Business': 'mean',
+                     'Driver in Business': 'mean',
+                     'Pickup to Customer': 'mean',
+                     'Average Delivery Time': 'mean'},
+            margins=True
+            ).round(1)
+            
+            column_order = ['STATE', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
+                'Driver to Business', 'Driver in Business', 'Pickup to Customer', 'Average Delivery Time']
+
+            # Reorder the columns in the DataFrame
+            driver_performance_pivot = driver_performance_pivot[column_order]
+            
+            # Display the driver performance pivot table
+            st.write("Driver Performance Pivot Table:")
+            st.write(driver_performance_pivot)
+            
+            
+            # Function to handle file download
+            def download_excel(dataframe):
+                # Write the Excel file to a buffer
+                excel_buffer = BytesIO()
+                dataframe.to_excel(excel_buffer, index=True)
+                excel_buffer.seek(0)
+                
+                # Encode the Excel data as base64
+                b64 = base64.b64encode(excel_buffer.read()).decode()
+                
+                # Create download link
+                href = f'<a href="data:application/octet-stream;base64,{b64}" download="driver_performance_metrics.xlsx">Download Excel File</a>'
+                
+                # Display download link
+                st.markdown(href, unsafe_allow_html=True)
+            
+            # Display the download button
+            if st.button("Download Driver Performance Metrics"):
+                download_excel(driver_performance_pivot)                                  
+
+
+
+
+            df = calculate_distances(df)
+            # Dropdown for selecting a driver
+            unique_driver_names = df['DRIVER NAME'].dropna().unique()
+            selected_driver_name = st.selectbox("Select Driver Name:", unique_driver_names)
+                                   
+
+            if selected_driver_name:
+                # Filter dataframe by selected driver
+                selected_driver_df = df[df['DRIVER NAME'] == selected_driver_name]
+                
+                if not selected_driver_df.empty:
+                    st.write(f"Orders for {selected_driver_name}:")
                     
+                    # Display the relevant columns, including the newly added 'Distance (km)' and 'Distance Category'
+                    st.write(selected_driver_df[['ID', 'BUSINESS NAME', 'DELIVERY DATE', 'DISTANCE (km)', 'Distance Category',
+                                                 'Accepted by Business', 'Assigned Time', 'Accepted by Driver', 
+                                                 'Driver to Business', 'Driver in Business', 'Pickup to Customer', 
+                                                 'Average Delivery Time']])
+                    
+                    
+                    
+                    
+                    # Create a pivot table by Distance Category
+                    pivot_df = selected_driver_df.pivot_table(
+                        index='Distance Category',
+                        values=['ID', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver', 
+                                'Driver to Business', 'Driver in Business', 'Pickup to Customer', 
+                                'Average Delivery Time'],
+                        aggfunc={'ID': 'count', 
+                                 'Accepted by Business': 'mean', 
+                                 'Assigned Time': 'mean', 
+                                 'Accepted by Driver': 'mean', 
+                                 'Driver to Business': 'mean', 
+                                 'Driver in Business': 'mean', 
+                                 'Pickup to Customer': 'mean', 
+                                 'Average Delivery Time': 'mean'},
+                        margins=True
+                    ).rename(columns={'ID': 'Number of Orders', 
+                                      'Average Delivery Time': 'Average Delivery Time (mins)'})
+                    
+                    # Reorder the columns
+                    column_order = ['Number of Orders', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver', 
+                                    'Driver to Business', 'Driver in Business', 'Pickup to Customer', 'Average Delivery Time (mins)']
+                    
+                    # Apply the new column order to the pivot table
+                    pivot_df = pivot_df[column_order]
+                    
+                    # Display the pivot table with the desired column order
+                    st.write("Driver Performance by Distance Category:")
+                    st.write(pivot_df)
+                    
+                    
+                    # Pie chart for number of orders by Distance Category
+                    order_counts = pivot_df['Number of Orders'].drop('All')  # Remove the "All" row for total orders
+                    labels = order_counts.index
+                    sizes = order_counts.values
+                    
+                    # Create the pie chart
+                    fig, ax = plt.subplots()
+                    ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=sns.color_palette("Set2", len(labels)))
+                    ax.axis('equal')  # Equal aspect ratio ensures that pie chart is circular.
+                    
+                    # Display the pie chart
+                    st.header("Orders by Distance Category (Pie Chart)")
+                    st.pyplot(fig)
+
+
+                    # Assuming the data for the selected driver has been filtered and stored in 'selected_driver_df'
+                    # Make sure the relevant columns are available
+                    heat_data_list = selected_driver_df[['CUSTOMER LATITUDE', 'CUSTOMER LONGITUDE']].dropna().values.tolist()
+                    
+                    # Step 3: Create a Base Map
+                    # Center the map around an appropriate location (e.g., driver's deliveries or a fixed location)
+                    # Here, we use a central location for the driver's deliveries; adjust as needed
+                    m = folium.Map(location=[-6.8018, 39.2801], zoom_start=14)
+                    
+                    # Step 4: Add HeatMap Layer
+                    # Ensure heatmap visibility with appropriate parameters
+                    HeatMap(heat_data_list, radius=15, blur=10, max_zoom=1).add_to(m)
+                    
+                    # Step 5: Display the map (if running in a Streamlit environment)
+                    # Save the map as an HTML file to be embedded or downloaded
+                    map_filename = "driver_heatmap.html"
+                    m.save(map_filename)
+                    
+                    # Display the map (in Streamlit)
+                    st.header("Customer Location Heatmap for the Selected Driver")
+                    st.components.v1.html(m._repr_html_(), height=600)
+                    
+                    # Optionally, provide a download link for the heatmap
+                    def download_map(filename):
+                        with open(filename, 'r') as file:
+                            map_data = file.read()
+                        b64 = base64.b64encode(map_data.encode()).decode()
+                        href = f'<a href="data:text/html;base64,{b64}" download="{filename}">Download the Heatmap</a>'
+                        st.markdown(href, unsafe_allow_html=True)
+                    
+                    # Button to download the heatmap HTML
+                    if st.button(f"Download Heatmap for {selected_driver_name}"):
+                        download_map(map_filename)
+
+                    
+                    # Function to download Excel file
+                    def download_excel(dataframe, filename="selected_driver_performance.xlsx"):
+                        excel_buffer = BytesIO()
+                        dataframe.to_excel(excel_buffer, index=True)
+                        excel_buffer.seek(0)
+                        b64 = base64.b64encode(excel_buffer.read()).decode()
+                        href = f'<a href="data:application/octet-stream;base64,{b64}" download="{filename}">Download {filename}</a>'
+                        st.markdown(href, unsafe_allow_html=True)
+            
+                    # Download button for the filtered data
+                    if st.button(f"Download Pivot Table for {selected_driver_name}"):
+                        download_excel(selected_driver_df)
+                        
+                        
+                        
+
+                    # Add working hours column
+                    selected_driver_df['HOUR'] = selected_driver_df['DELIVERY TIME'].dt.hour
+                    hour_bins = [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+                    hour_labels = [f'{hour:02d}' for hour in range(24)]
+                    selected_driver_df['HOUR_CATEGORY'] = pd.cut(selected_driver_df['HOUR'], bins=hour_bins, labels=hour_labels, right=False)
+
+                    # Pivot table: total orders per delivery date and hour
+                    pivot_df = selected_driver_df.pivot_table(
+                        values='ID',
+                        index='DELIVERY DATE',
+                        columns='HOUR_CATEGORY',
+                        aggfunc=pd.Series.nunique,
+                        fill_value=0
+                    )
+                    pivot_df['TotalOrders'] = pivot_df.sum(axis=1)  # Add total orders column
+                    st.header("Driver Working Hours")
+                    st.write(pivot_df)
+
+                    # Sort the pivot table by delivery date
+                    sorted_pivot_df2 = pivot_df.sort_index()
+                    st.write("Sorted Driver Working Hours by Date")
+                    st.write(sorted_pivot_df2)
+                    
+                    # Add download button for the 'sorted_pivot_df2' table
+                    if st.button("Download Sorted Driver Working Hours"):
+                        download_excel(sorted_pivot_df2, filename=f"{selected_driver_name}_working_hours.xlsx")
+
+
+                    busy_hours = ['17', '18', '19', '20', '21', '22']
+                    
+                    # Check for existing columns in the pivot table
+                    available_busy_hours = [hour for hour in busy_hours if hour in pivot_df.columns]
+                    
+                    if available_busy_hours:
+                        filtered_pivot_df = pivot_df[available_busy_hours]
+                        st.header(f"Orders During Busy Hours (17:00 to 22:00): {selected_driver_name}")
+                        st.write(filtered_pivot_df)
+                        
+                    if st.button("Download Orders During Busy Hours"):
+                        download_excel(filtered_pivot_df, filename=f"{selected_driver_name}_busy_hours_orders.xlsx")
+                                            
+                        
+                else:
+                    st.write(f"No records found for driver: {selected_driver_name}")
+
+        except Exception as e:
+            st.error(f"An error occurred while processing the dataset: {e}")
+
+
+                    
+          
             
 
 def rejected_orders():
