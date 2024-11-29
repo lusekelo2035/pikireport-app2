@@ -416,7 +416,23 @@ def calculate_distances(df):
     df['Distance Category'] = pd.cut(df['DISTANCE (km)'], bins=bins, labels=labels)
 
     return df
+
         
+def calculate_order_timing(df):
+    # Sort by driver name and delivery time to maintain order
+    df = df.sort_values(by=['DRIVER NAME', 'DELIVERY TIME'])
+
+    # Add Current Order Time column
+    df['Current Order Time'] = df['DELIVERY TIME']
+
+    # Add Last Order Delivery Time column
+    df['Last Order Delivery Time'] = df.groupby('DRIVER NAME')['DELIVERY HOUR'].shift(1)
+
+    # Calculate Time Difference in minutes before another order
+    df['Time Difference (mins)'] = (df['DELIVERY TIME'] - df['Last Order Delivery Time']).dt.total_seconds() / 60
+    df['Time Difference (mins)'] = df['Time Difference (mins)'].fillna(0)  # Fill NaN with 0 for first order
+
+    return df
 
 # Main delivery time function
 def delivery_time():
@@ -468,6 +484,11 @@ def delivery_time():
                 
                 
 
+            df = calculate_distances(df)
+            
+            # Add 'Cause for the delay' column from 'MESSAGES'
+            df['Cause for the delay'] = df['MESSAGES']
+
             # Identify and categorize issues
             df['Issues'] = df.apply(categorize_issues, axis=1)
             orders_with_issues = df[df['Issues'] != ""]
@@ -476,17 +497,16 @@ def delivery_time():
             # Orders with Issues: Pivot Table
             st.write("### Orders with Issues")
             issues_pivot = orders_with_issues[[
-                'ID', 'BUSINESS NAME', 'BUSINESS CITY', 'DRIVER NAME',
+                'ID', 'BUSINESS NAME', 'BUSINESS CITY', 'DRIVER NAME', 'DISTANCE (km)',
                 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
                 'Driver to Business', 'Driver in Business', 'Pickup to Customer',
-                'Average Delivery Time', 'Issues'
+                'Average Delivery Time', 'Issues', 'Cause for the delay'
             ]].round(1)
 
             total_rows = len(issues_pivot)
             st.write(issues_pivot)
             st.write(f"Total Rows: {total_rows}")
             download_excel(issues_pivot, "orders_with_issues.xlsx")
-
 
 
             # Actual Delivery Time Analysis for Non-Issue Orders
@@ -1258,11 +1278,15 @@ def weekly_report():
 
 
 
+            # Calculate distances
             df = calculate_distances(df)
+
+            # Add the new timing columns
+            df = calculate_order_timing(df)
+
             # Dropdown for selecting a driver
             unique_driver_names = df['DRIVER NAME'].dropna().unique()
             selected_driver_name = st.selectbox("Select Driver Name:", unique_driver_names)
-                                   
 
             if selected_driver_name:
                 # Filter dataframe by selected driver
@@ -1271,14 +1295,13 @@ def weekly_report():
                 if not selected_driver_df.empty:
                     st.write(f"Orders for {selected_driver_name}:")
                     
-                    # Display the relevant columns, including the newly added 'Distance (km)' and 'Distance Category'
-                    st.write(selected_driver_df[['ID', 'BUSINESS NAME', 'DELIVERY DATE', 'DISTANCE (km)', 'Distance Category',
+                    # Display the relevant columns, including the newly added columns
+                    st.write(selected_driver_df[['ID', 'BUSINESS NAME', 'DELIVERY DATE', 'DISTANCE (km)', 
+                                                 'Current Order Time', 'Last Order Delivery Time', 
+                                                 'Time Difference (mins)', 'Distance Category',
                                                  'Accepted by Business', 'Assigned Time', 'Accepted by Driver', 
                                                  'Driver to Business', 'Driver in Business', 'Pickup to Customer', 
                                                  'Average Delivery Time']])
-                    
-                    
-                    
                     
                     # Create a pivot table by Distance Category
                     pivot_df = selected_driver_df.pivot_table(
@@ -1305,10 +1328,9 @@ def weekly_report():
                     # Apply the new column order to the pivot table
                     pivot_df = pivot_df[column_order]
                     
-                    # Display the pivot table with the desired column order
+                    # Display the pivot table
                     st.write("Driver Performance by Distance Category:")
                     st.write(pivot_df)
-                    
                     
                     # Pie chart for number of orders by Distance Category
                     order_counts = pivot_df['Number of Orders'].drop('All')  # Remove the "All" row for total orders
