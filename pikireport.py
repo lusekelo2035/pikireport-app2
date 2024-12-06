@@ -190,19 +190,67 @@ def data_analysis():
             selected_hours = list(range(hours_range[0], hours_range[1] + 1))
             filtered_df = data[data['HOURS'].isin(selected_hours)]
 
+
+
+
             # ---- Summary Table for Order Status ----
             state_summary = filtered_df['STATE'].value_counts().reset_index()
             state_summary.columns = ['STATE', 'Count']
             total_orders = filtered_df.shape[0]
             total_row = pd.DataFrame({'STATE': ['TOTAL ORDERS'], 'Count': [total_orders]})
             state_summary = pd.concat([total_row, state_summary], ignore_index=True)
-
+            
             st.markdown("### Summary Table for Order Status")
             st.table(state_summary)
-
+            
             # Download Button for Order Status Summary
             if st.button("Download Order Status Summary"):
                 download_excel(state_summary, "order_status_summary.xlsx")
+            
+            # ---- Driver Location Analysis and Checklist ----
+            st.markdown("### Driver Location Analysis and Checklist")
+            
+            # Define the regional cities
+            regional_cities = ['Mwanza', 'Zanzibar', 'Arusha', 'Dodoma']
+            
+            # Classify drivers into Dar es Salaam or Regional
+            data['Driver Location'] = data['BUSINESS CITY'].apply(
+                lambda x: 'Regional' if x in regional_cities else 'Dar es Salaam'
+            )
+            
+            # Calculate total drivers by location
+            driver_location_summary = data.groupby('Driver Location')['DRIVER ID'].nunique().reset_index()
+            driver_location_summary.rename(columns={'DRIVER ID': 'Total Number of Drivers'}, inplace=True)
+            
+            # Add placeholders for the checklist columns
+            driver_location_summary['Is Driver Sufficient?'] = ''
+            driver_location_summary['Explain any challenge you faced that need improvement'] = ''
+            driver_location_summary['What are your suggestions?'] = ''
+            
+            # Calculate total number of drivers across locations
+            total_drivers = data['DRIVER ID'].nunique()
+            
+            # Add a "Total" row at the bottom
+            total_row = pd.DataFrame({
+                'Driver Location': ['Total'],
+                'Total Number of Drivers': [total_drivers],
+                'Is Driver Sufficient?': [''],
+                'Explain any challenge you faced that need improvement': [''],
+                'What are your suggestions?': ['']
+            })
+            
+            # Append the "Total" row to the driver_location_summary DataFrame
+            driver_location_summary = pd.concat([driver_location_summary, total_row], ignore_index=True)
+            
+            # Display the driver location analysis and checklist
+            st.table(driver_location_summary)
+            
+            # Download Button for Driver Location Analysis
+            if st.button("Download Driver Location Analysis and Checklist"):
+                download_excel(driver_location_summary, "driver_location_analysis_checklist.xlsx")
+            
+            
+            
 
             # ---- Custom Analysis for Business City and Order Status ----
             # Map specific states to new columns using multiple conditions
@@ -504,22 +552,51 @@ def delivery_time():
             ]].round(1)
 
             total_rows = len(issues_pivot)
-            st.write(issues_pivot)
-            st.write(f"Total Rows: {total_rows}")
-            download_excel(issues_pivot, "orders_with_issues.xlsx")
+            #st.write(issues_pivot)
+            #st.write(f"Total Rows: {total_rows}")
+            #download_excel(issues_pivot, "orders_with_issues.xlsx")
 
 
+
+
+            # Summary of Problematic Orders: Create another table with only selected columns
+            st.write("### Summary of Problematic Orders")
+            summary_pivot = orders_with_issues[[
+                'ID', 'BUSINESS NAME', 'BUSINESS CITY', 'DRIVER NAME', 'DISTANCE (km)',
+                'Average Delivery Time', 'Cause for the delay', 'SUBTOTAL'
+            ]].round(1)
+            
+            # Rename the columns
+            summary_pivot = summary_pivot.rename(columns={
+                'DISTANCE (km)': 'Distance from the restaurant to customer',
+                'SUBTOTAL': 'SUBTOTAL AMOUNT (TSH)'
+            })
+            
+            # Re-arrange columns in the required order
+            summary_pivot = summary_pivot[['ID', 'BUSINESS NAME', 'BUSINESS CITY', 'DRIVER NAME',
+                                           'SUBTOTAL AMOUNT (TSH)', 'Distance from the restaurant to customer',
+                                           'Average Delivery Time', 'Cause for the delay']]
+            
+            # Display the summary pivot table
+            st.write(summary_pivot)
+            
+            # Provide download link for the Summary of Problematic Orders
+            download_excel(summary_pivot, "summary_of_problematic_orders.xlsx")
+            
+            
+            
+            
             # Actual Delivery Time Analysis for Non-Issue Orders
             st.write("### Actual Delivery Time Analysis")
             non_issue_orders['HOURS'] = non_issue_orders['DELIVERY TIME'].dt.hour
-
+            
             non_issue_pivot = non_issue_orders.pivot_table(
                 index='BUSINESS CITY',
-                values=['STATE', 'DRIVER ID', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
+                values=[ 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
                         'Driver to Business', 'Driver in Business', 'Pickup to Customer', 'Average Delivery Time'],
                 aggfunc={
-                    'STATE': 'count',
-                    'DRIVER ID': 'nunique',
+                    #'STATE': 'count',
+                    #'DRIVER ID': 'nunique',
                     'Accepted by Business': 'mean',
                     'Assigned Time': 'mean',
                     'Accepted by Driver': 'mean',
@@ -530,26 +607,33 @@ def delivery_time():
                 },
                 margins=True
             ).round(1)
-
-            non_issue_pivot.rename(columns={'STATE': 'Total Orders', 'DRIVER ID': 'Total Drivers'}, inplace=True)
+            
+            #non_issue_pivot.rename(columns={'STATE': 'Total Orders', 'DRIVER ID': 'Total Drivers'}, inplace=True)
             column_order = [
-                'Total Orders', 'Total Drivers', 'Accepted by Business', 'Assigned Time',
+                'Accepted by Business', 'Assigned Time',
                 'Accepted by Driver', 'Driver to Business', 'Driver in Business',
                 'Pickup to Customer', 'Average Delivery Time'
             ]
             non_issue_pivot = non_issue_pivot[column_order]
             non_issue_pivot.reset_index(inplace=True)
-
+            
+            # Exclude 'Total Orders' and 'Total Drivers' from the display and downloadable file
+            #non_issue_pivot_display = non_issue_pivot.drop(columns=['Total Orders', 'Total Drivers'])
+            
+            # Display and download the modified table
             st.write(non_issue_pivot)
             download_excel(non_issue_pivot, "actual_delivery_time_analysis.xlsx")
             
+                        
+            
+                  
             
             
             # Identify and categorize issues
             df['Issues'] = df.apply(categorize_issues, axis=1)
 
             # Pivot Table for Total Delivery Time (Including Issue and Non-Issue Orders)
-            st.write("### Total Delivery Time (Including Issue and Non-Issue Orders)")
+            #st.write("### Total Delivery Time (Including Issue and Non-Issue Orders)")
             total_delivery_pivot = df.pivot_table(
                 index='BUSINESS CITY',
                 values=[
@@ -585,8 +669,8 @@ def delivery_time():
             # Reset index to include 'BUSINESS CITY' as a column in the Excel output
             total_delivery_pivot.reset_index(inplace=True)
 
-            st.write(total_delivery_pivot)
-            download_excel(total_delivery_pivot, "total_delivery_time.xlsx")
+            #st.write(total_delivery_pivot)
+            #download_excel(total_delivery_pivot, "total_delivery_time.xlsx")
             
             
             #PRE ORDER ANALYSIS
