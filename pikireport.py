@@ -162,18 +162,32 @@ if 'df' not in st.session_state:
     st.session_state.df = None
 
 def load_data():
-    uploaded_file = st.file_uploader("Upload Your Dataset (CSV or Excel)", type=["csv", "xlsx"])
-    if uploaded_file is not None:
+    uploaded_files = st.file_uploader(
+        "Upload Your Dataset (CSV or Excel)",
+        type=["csv", "xlsx"],
+        accept_multiple_files=True
+    )
+
+    if uploaded_files:
         try:
-            if uploaded_file.type == 'application/vnd.ms-excel':
-                df = pd.read_excel(uploaded_file, engine='openpyxl')
-            else:
-                df = pd.read_csv(uploaded_file)
-            st.session_state.df = df  # store in session_state
+            dataframes = []
+
+            for file in uploaded_files:
+                if file.name.endswith(".xlsx"):
+                    df = pd.read_excel(file, engine="openpyxl")
+                else:
+                    df = pd.read_csv(file)
+
+                dataframes.append(df)
+
+            # Combine all files (row-wise)
+            combined_df = pd.concat(dataframes, ignore_index=True)
+
+            st.session_state.df = combined_df
+            st.success(f"{len(uploaded_files)} file(s) uploaded and combined successfully")
+
         except Exception as e:
-            st.error(f"Error loading the file: {e}")
-
-
+            st.error(f"Error loading files: {e}")
 
 
     
@@ -190,13 +204,23 @@ def download_excel(dataframe, filename="download.xlsx"):
 
 def data_analysis():
     st.title("DATA SUMMARY")
-    # File uploader for CSV or Excel
-    
+
     load_data()
+
     if st.session_state.df is not None:
-        df = st.session_state.df  # consistently use df
-  
-   
+        df = st.session_state.df
+
+        st.write("Preview of Combined Data")
+        st.dataframe(df.head())
+
+        st.write("Dataset Shape:", df.shape)
+
+        # Example: Download cleaned dataset
+        download_excel(df, "combined_dataset.xlsx")
+
+
+
+
     
         # Convert DELIVERY TIME to datetime and extract hour
         df['DELIVERY TIME'] = pd.to_datetime(df['DELIVERY TIME'], errors='coerce')
@@ -411,7 +435,7 @@ def categorize_issues(row):
         issues.append("Driver in Business Out of Range")
     if row['Pickup to Customer'] < 0 or row['Pickup to Customer'] > 45:
         issues.append("Pickup to Customer Out of Range")
-    if row['Average Delivery Time'] < 0 or row['Average Delivery Time'] > 150:
+    if row['Average Delivery Time'] < 0 or row['Average Delivery Time'] > 100:
         issues.append("Average Delivery Time Out of Range")
     return ", ".join(issues)
 
