@@ -307,7 +307,7 @@ def data_analysis():
                     np.where(
                         df['STATE'].isin(['Delivery Failed By Driver', 'Not picked by customer', 'Pickup Failed By Driver']),
                         'DELIVERY FAILED BY DRIVER',
-                        np.nan
+                        None
                     )
                 )
             )
@@ -1648,3 +1648,4 @@ if __name__ == "__main__":
 
 if st.checkbox("By"):
     st.success("lusekelo2035")
+
