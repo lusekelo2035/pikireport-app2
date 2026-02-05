@@ -15,6 +15,8 @@ import base64
 from math import radians, sin, cos, sqrt, atan2
 import folium
 from folium.plugins import HeatMap
+from pandas import ExcelWriter
+
 
 
 st.set_page_config(page_title="Piki Report", page_icon="📋", layout="wide")
@@ -149,7 +151,7 @@ def main():
         rejected_orders()
         
     st.sidebar.image(
-        "https://unsplash.com/photos/50yZdrpM_ec/download?ixid=M3wxMjA3fDB8MXxzZWFyY2h8N3x8ZGVsaXZlcnklMjBtb3RvcnxlbnwwfHx8fDE3MzA3MTMxNDd8MA&force=true",
+        "https://unsplash.com/photos/0qyUkrrmI8U/download?force=true",
         #"https://media.istockphoto.com/id/1296986175/photo/young-man-working-for-a-food-delivery-service-checking-with-road-motorcycle-in-the-city.jpg?s=2048x2048&w=is&k=20&c=Jg03jmHONRuVF_LJSxC1Y87-6DXzc930GzJVI1wUMWU=", 
         use_column_width=True, 
         caption="Piki Delivery",
@@ -248,195 +250,154 @@ def data_analysis():
         if st.button("Download Order Status Summary"):
             download_excel(state_summary, "order_status_summary.xlsx")
         
-        # ---- Driver Location Analysis and Checklist ----
-        st.markdown("### Driver Location Analysis and Checklist")
         
-        # Define the regional cities
-        regional_cities = ['Mwanza', 'Zanzibar', 'Arusha', 'Dodoma']
         
-        # Classify drivers into Dar es Salaam or Regional
-        df['Driver Location'] = df['BUSINESS CITY'].apply(
-            lambda x: 'Regional' if x in regional_cities else 'Dar es Salaam'
+                # Determine each rider's base working zone (most frequent BUSINESS CITY)
+        driver_base_city = (
+            df.groupby('DRIVER NAME')['BUSINESS CITY']
+            .agg(lambda x: x.mode().iloc[0] if not x.mode().empty else None)
         )
+        df['WORKING ZONE'] = df['DRIVER NAME'].map(driver_base_city)
+                
         
-        # Calculate total drivers by location
-        driver_location_summary = df.groupby('Driver Location')['DRIVER ID'].nunique().reset_index()
-        driver_location_summary.rename(columns={'DRIVER ID': 'Total Number of Drivers'}, inplace=True)
+        #import datetime
+        # -----------------------------------------
+        # DRIVER ATTENDANCE REPORT
+        # -----------------------------------------
         
-        # Add placeholders for the checklist columns
-        driver_location_summary['Is Driver Sufficient?'] = ''
-        driver_location_summary['Explain any challenge you faced that need improvement'] = ''
-        driver_location_summary['What are your suggestions?'] = ''
+        st.markdown("### Driver Attendance by Business City")
         
-        # Calculate total number of drivers across locations
-        total_drivers = df['DRIVER ID'].nunique()
+        # Ensure DELIVERY DATE is datetime
+        df['DELIVERY DATE'] = pd.to_datetime(df['DELIVERY DATE'], dayfirst=False)
         
-        # Add a "Total" row at the bottom
-        total_row = pd.DataFrame({
-            'Driver Location': ['Total'],
-            'Total Number of Drivers': [total_drivers],
-            'Is Driver Sufficient?': [''],
-            'Explain any challenge you faced that need improvement': [''],
-            'What are your suggestions?': ['']
-        })
+        # Detect weekday/weekend from DELIVERY DATE
+        df['Day of Week'] = df['DELIVERY DATE'].dt.weekday  # Monday=0, Sunday=6
+        df['Day Type'] = df['Day of Week'].apply(lambda x: 'Weekend' if x >= 4 else 'Weekday')
         
-        # Append the "Total" row to the driver_location_summary DataFrame
-        driver_location_summary = pd.concat([driver_location_summary, total_row], ignore_index=True)
+        # --- Streamlit date selector ---
+        selected_date = st.date_input("Select Date for Attendance Analysis")
         
-        # Display the driver location analysis and checklist
-        st.table(driver_location_summary)
+        # Filter data for the selected date
+        day_df = df[df['DELIVERY DATE'] == pd.to_datetime(selected_date)]
         
-        # Download Button for Driver Location Analysis
-        if st.button("Download Driver Location Analysis and Checklist"):
-            download_excel(driver_location_summary, "driver_location_analysis_checklist.xlsx")
+        if day_df.empty:
+            st.warning("No orders found for the selected date.")
+        else:
+            # Determine day type dynamically
+            day_type = day_df['Day Type'].iloc[0]  # 'Weekday' or 'Weekend'
         
+            # Target riders per city
+            target_riders_df = pd.DataFrame({
+                'Business City': ['Masaki', 'City Centre', 'Mlimani', 'Mikocheni', 'Mbezi',
+                                  'Kigamboni', 'Kinondoni', 'Arusha', 'Dodoma', 'Zanzibar', 'Mwanza'],
+                'Weekday Active Riders': [40, 35, 9, 10, 8, 1, 3, 8, 3, 3, 2],
+                'Weekend Active Riders': [50, 40, 10, 13, 10, 1, 4, 10, 4, 4, 3]
+            })
         
-        
-
-        # ---- Custom Analysis for Business City and Order Status ----
-        # Map specific states to new columns using multiple conditions
-        df['ORDER STATUS'] = np.where(
-            df['STATE'].isin(['Delivery Completed By Driver']),
-            'DELIVERY COMPLETED BY DRIVER',
-            np.where(
-                df['STATE'].isin(['Rejected', 'Rejected by Driver', 'Rejected by Business']),
-                'REJECTED',
-                np.where(
-                    df['STATE'].isin(['Completed', 'Pickup completed by customer']),
-                    'PICKUP ORDERS',
-                    np.where(
-                        df['STATE'].isin(['Delivery Failed By Driver', 'Not picked by customer', 'Pickup Failed By Driver']),
-                        'DELIVERY FAILED BY DRIVER',
-                        None
-                    )
-                )
+            # --- Calculate Standard Rider Required based on selected date ---
+            target_riders_df['Standard Rider Required'] = target_riders_df.apply(
+                lambda x: x['Weekend Active Riders'] if day_type == 'Weekend' else x['Weekday Active Riders'],
+                axis=1
             )
-        )
-
-        # Filter data to include only rows with mapped order statuses
-        df_filtered = df.dropna(subset=['ORDER STATUS'])
-
-        # Create pivot table
-        order_status_summary = df_filtered.pivot_table(
-            index='BUSINESS CITY',
-            columns='ORDER STATUS',
-            values='ID',
-            aggfunc='count',
-            margins=False
-        ).fillna(0).astype(int)
         
-        # Add total orders per city
-        order_status_summary['TOTAL_ORDERS'] = order_status_summary.sum(axis=1)
+            # Count actual riders per city (based on WORKING ZONE)
+            actual_riders_df = df[['DRIVER NAME', 'WORKING ZONE']].drop_duplicates() \
+                .groupby('WORKING ZONE').size().reset_index(name='Actual Riders Present')
         
-        # Ensure expected columns exist
-        expected_cols = [
-            'DELIVERY COMPLETED BY DRIVER',
-            'REJECTED',
-            'PICKUP ORDERS',
-            'DELIVERY FAILED BY DRIVER'
-        ]
+            # Merge target and actual riders
+            attendance_df = target_riders_df.merge(
+                actual_riders_df,
+                left_on='Business City',
+                right_on='WORKING ZONE',
+                how='left'
+            )
+            attendance_df['Actual Riders Present'] = attendance_df['Actual Riders Present'].fillna(0).astype(int)
         
-        for col in expected_cols:
-            if col not in order_status_summary.columns:
-                order_status_summary[col] = 0
+            # Count total orders per business city for selected date
+            orders_per_city = day_df.groupby('BUSINESS CITY')['ID'].count().reset_index(name='Total Orders')
         
-        # Vendor count
-        restaurant_counts = df[['BUSINESS NAME', 'BUSINESS CITY']].drop_duplicates() \
-            .groupby('BUSINESS CITY').size().reset_index(name='NUMBER OF RESTAURANTS')
+            attendance_df = attendance_df.merge(
+                orders_per_city,
+                left_on='Business City',
+                right_on='BUSINESS CITY',
+                how='left'
+            )
+            attendance_df['Total Orders'] = attendance_df['Total Orders'].fillna(0).astype(int)
         
-        # Merge restaurant data
-        order_status_summary = order_status_summary.reset_index().merge(
-            restaurant_counts,
-            on='BUSINESS CITY',
-            how='left'
-        )
+            # Rider-to-Order ratio
+            attendance_df['Rider to Order Ratio'] = (
+                attendance_df['Total Orders'] / attendance_df['Actual Riders Present'].replace(0, 1)
+            ).round(1)
         
-        order_status_summary['NUMBER OF RESTAURANTS'] = order_status_summary['NUMBER OF RESTAURANTS'].fillna(0).astype(int)
+            # Status column: ✅ if met, else deficiency
+            def compute_status(row):
+                if row['Actual Riders Present'] >= row['Standard Rider Required']:
+                    return '✅'
+                else:
+                    deficit = row['Standard Rider Required'] - row['Actual Riders Present']
+                    return f'Deficiency of {deficit} riders'
         
-        # Percentage contribution
-        total_company_orders = order_status_summary['TOTAL_ORDERS'].sum()
+            attendance_df['Status'] = attendance_df.apply(compute_status, axis=1)
         
-        order_status_summary['PERCENTAGE CONTRIBUTION'] = (
-            (order_status_summary['TOTAL_ORDERS'] / total_company_orders) * 100
-        ).round(1).astype(str) + '%'
+            # Keep only required columns
+            attendance_df = attendance_df[['Business City', 'Standard Rider Required',
+                                           'Actual Riders Present', 'Rider to Order Ratio', 'Status']]
         
-        # Sort by highest orders
-        order_status_summary = order_status_summary.sort_values(by='TOTAL_ORDERS', ascending=False)
+            # Add TOTAL row
+            total_row = pd.DataFrame({
+                'Business City': ['TOTAL'],
+                'Standard Rider Required': [attendance_df['Standard Rider Required'].sum()],
+                'Actual Riders Present': [attendance_df['Actual Riders Present'].sum()],
+                'Rider to Order Ratio': [(
+                    attendance_df['Rider to Order Ratio'] * attendance_df['Actual Riders Present']
+                ).sum() / attendance_df['Actual Riders Present'].sum()],
+                'Status': ['']
+            })
         
-        # Add Total row
-        total_row = pd.DataFrame({
-            'BUSINESS CITY': ['TOTAL'],
-            'DELIVERY COMPLETED BY DRIVER': [order_status_summary['DELIVERY COMPLETED BY DRIVER'].sum()],
-            'REJECTED': [order_status_summary['REJECTED'].sum()],
-            'PICKUP ORDERS': [order_status_summary['PICKUP ORDERS'].sum()],
-            'DELIVERY FAILED BY DRIVER': [order_status_summary['DELIVERY FAILED BY DRIVER'].sum()],
-            'TOTAL_ORDERS': [order_status_summary['TOTAL_ORDERS'].sum()],
-            'NUMBER OF RESTAURANTS': [order_status_summary['NUMBER OF RESTAURANTS'].sum()],
-            'PERCENTAGE CONTRIBUTION': ['100%']
-        })
+            attendance_df = pd.concat([attendance_df, total_row], ignore_index=True)
         
-        order_status_summary = pd.concat([order_status_summary, total_row], ignore_index=True)
+            # Display table
+            st.table(attendance_df)
         
-        # FINAL COLUMN ORDER
-        final_cols = [
-            'BUSINESS CITY',
-            'NUMBER OF RESTAURANTS',
-            'DELIVERY COMPLETED BY DRIVER',
-            'REJECTED',
-            'PICKUP ORDERS',
-            'DELIVERY FAILED BY DRIVER',
-            'TOTAL_ORDERS',
-            'PERCENTAGE CONTRIBUTION'
-        ]
-        
-        order_status_summary = order_status_summary[final_cols]
-        
-        # Display table
-        st.markdown("### Order Status by Business City")
-        st.table(order_status_summary)
-        
-        # Download file
-        if st.button("Download Order Status by Business City"):
-            download_excel(order_status_summary, "order_status_by_city.xlsx")
-
-            
-            
-
-        # ---- Customer Ordering Platform Distribution ----
-        platform_counts = df['CREATE_FROM'].value_counts().reset_index()
-        platform_counts.columns = ['Platform', 'Count']
-
-        st.markdown("### Customer Ordering Platform Distribution")
-        st.table(platform_counts)
-
-        plt.figure(figsize=(8, 8))
-        plt.pie(platform_counts['Count'], labels=platform_counts['Platform'],
-                autopct='%1.1f%%', startangle=140)
-        plt.title("Customer Ordering Platform Distribution")
-        plt.tight_layout()
-        st.pyplot(plt)
+            # Download button
+            if st.button("Download Driver Attendance Report"):
+                download_excel(attendance_df, "driver_attendance_report.xlsx")
         
 
 
-
-
-# Function to categorize issues for orders
+# =====================================
+# Function to categorize problematic orders
+# =====================================
 def categorize_issues(row):
     issues = []
+
+    # 🚨 MAIN GATEKEEPER RULE
+    if row['Average Delivery Time'] <= 100:
+        return ""  # Non-issue order
+
+    # Only evaluate other delays IF average delivery time > 100
     if row['Accepted by Business'] < 0 or row['Accepted by Business'] > 30:
-        issues.append("Accepted by Business Out of Range")
+        issues.append("Accepted by Business Delay")
+
     if row['Assigned Time'] < 0 or row['Assigned Time'] > 30:
-        issues.append("Assigned Time Out of Range")
-    if row['Accepted by Driver'] < 0 or row['Accepted by Driver'] > 45:
-        issues.append("Accepted by Driver Out of Range")
-    if row['Driver to Business'] < 0 or row['Driver to Business'] > 45:
-        issues.append("Driver to Business Out of Range")
-    if row['Driver in Business'] < 0 or row['Driver in Business'] > 90:
-        issues.append("Driver in Business Out of Range")
+        issues.append("Assigned Time Delay")
+
+    if row['Accepted by Driver'] < 0 or row['Accepted by Driver'] > 30:
+        issues.append("Accepted by Driver Delay")
+
+    if row['Driver to Business'] < 0 or row['Driver to Business'] > 30:
+        issues.append("Driver to Business Delay")
+
+    if row['Driver in Business'] < 0 or row['Driver in Business'] > 60:
+        issues.append("Driver in Business Delay")
+
     if row['Pickup to Customer'] < 0 or row['Pickup to Customer'] > 45:
-        issues.append("Pickup to Customer Out of Range")
-    if row['Average Delivery Time'] < 0 or row['Average Delivery Time'] > 100:
-        issues.append("Average Delivery Time Out of Range")
+        issues.append("Pickup to Customer Delay")
+
+    # If avg delivery time is >100 but no stage explains it
+    if not issues:
+        issues.append("Unclassified Delay")
+
     return ", ".join(issues)
 
 
@@ -553,33 +514,135 @@ def delivery_time():
               
         
         
-
+    # ==============================
+    # ISSUE CLASSIFICATION LOGIC
+    # ==============================
+    def categorize_issues(row):
+        """
+        An order is ONLY problematic if Average Delivery Time > 100 minutes.
+        If <= 100 minutes, it is automatically NON-ISSUE.
+        """
+        issues = []
+    
+        # 🚨 Gatekeeper condition
+        if row['Average Delivery Time'] <= 100:
+            return ""
+    
+        # Only evaluate other delays if delivery time > 100
+        if row['Accepted by Business'] < 0 or row['Accepted by Business'] > 30:
+            issues.append("Accepted by Business Delay")
+    
+        if row['Assigned Time'] < 0 or row['Assigned Time'] > 30:
+            issues.append("Assigned Time Delay")
+    
+        if row['Accepted by Driver'] < 0 or row['Accepted by Driver'] > 30:
+            issues.append("Accepted by Driver Delay")
+    
+        if row['Driver to Business'] < 0 or row['Driver to Business'] > 30:
+            issues.append("Driver to Business Delay")
+    
+        if row['Driver in Business'] < 0 or row['Driver in Business'] > 60:
+            issues.append("Driver in Business Delay")
+    
+        if row['Pickup to Customer'] < 0 or row['Pickup to Customer'] > 45:
+            issues.append("Pickup to Customer Delay")
+    
+        if not issues:
+            issues.append("Unclassified Delay")
+    
+        return ", ".join(issues)
+    
+    
+    # ==============================
+    # PREPARE DATA
+    # ==============================
     df = calculate_distances(df)
     
-    # Add 'Cause for the delay' column from 'MESSAGES'
     df['Cause for the delay'] = df['MESSAGES']
-
-    # Identify and categorize issues
+    
+    # Apply issue logic
     df['Issues'] = df.apply(categorize_issues, axis=1)
+    
+    # Split datasets
     orders_with_issues = df[df['Issues'] != ""]
     non_issue_orders = df[df['Issues'] == ""]
-
-    # Orders with Issues: Pivot Table
-    st.write("### Orders with Issues")
-    issues_pivot = orders_with_issues[[
-        'ID', 'BUSINESS NAME', 'BUSINESS CITY', 'DRIVER NAME', 'DISTANCE (km)', 'SUBTOTAL',
-        'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
-        'Driver to Business', 'Driver in Business', 'Pickup to Customer',
-        'Average Delivery Time', 'Issues', 'Cause for the delay'
-    ]].round(1)
-
-    total_rows = len(issues_pivot)
-    st.write(issues_pivot)
-    st.write(f"Total Rows: {total_rows}")
-    download_excel(issues_pivot, "orders_with_issues.xlsx")
-
-   
     
+    
+    # ==============================
+    # DETAILED PROBLEMATIC ORDERS
+    # ==============================
+    st.markdown("### 🚨 Orders with Issues (Delivery Time > 100 minutes)")
+    
+    issues_table = orders_with_issues[
+        [
+            'ID', 'BUSINESS NAME', 'BUSINESS CITY', 'DRIVER NAME',
+            'DISTANCE (km)', 'SUBTOTAL',
+            'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
+            'Driver to Business', 'Driver in Business', 'Pickup to Customer',
+            'Average Delivery Time', 'Issues', 'Cause for the delay'
+        ]
+    ].round(1)
+    
+    st.write(issues_table)
+    st.write(f"**Total Problematic Orders:** {len(issues_table)}")
+    
+    
+    # ==============================
+    # SUMMARY: PROBLEMATIC ORDERS BY CITY
+    # ==============================
+    st.markdown("### 📊 Problematic Orders Summary by Business City")
+    
+    issue_summary = (
+        orders_with_issues
+        .groupby('BUSINESS CITY')
+        .size()
+        .reset_index(name='Problematic Orders')
+        .sort_values('Problematic Orders', ascending=False)
+    )
+    
+    total_problematic = issue_summary['Problematic Orders'].sum()
+    
+    issue_summary['Percentage Contribution'] = (
+        issue_summary['Problematic Orders'] / total_problematic * 100
+    ).round(1).astype(str) + '%'
+    
+    # Add TOTAL row
+    total_row = pd.DataFrame({
+        'BUSINESS CITY': ['TOTAL'],
+        'Problematic Orders': [total_problematic],
+        'Percentage Contribution': ['100%']
+    })
+    
+    issue_summary = pd.concat([issue_summary, total_row], ignore_index=True)
+    
+    st.table(issue_summary)
+    
+    
+    import io
+    
+    # ==============================
+    # CREATE EXCEL IN MEMORY
+    # ==============================
+    def generate_problematic_orders_excel(summary_df, details_df):
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            summary_df.to_excel(writer, sheet_name="Summary by City", index=False)
+            details_df.to_excel(writer, sheet_name="Detailed Problematic Orders", index=False)
+        output.seek(0)
+        return output
+    
+    
+    # ==============================
+    # DOWNLOAD BUTTON
+    # ==============================
+    st.download_button(
+        label="📥 Download Problematic Orders Report",
+        data=generate_problematic_orders_excel(issue_summary, issues_table),
+        file_name="problematic_orders_report.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+
     
     # Actual Delivery Time Analysis for Non-Issue Orders
     st.write("### Actual Delivery Time Analysis")
@@ -612,92 +675,184 @@ def delivery_time():
     non_issue_pivot = non_issue_pivot[column_order]
     non_issue_pivot.reset_index(inplace=True)
     
-    # Exclude 'Total Orders' and 'Total Drivers' from the display and downloadable file
-    #non_issue_pivot_display = non_issue_pivot.drop(columns=['Total Orders', 'Total Drivers'])
+            
+        
+    # ---------------------------------
+    # 1. Reset index first
+    # ---------------------------------
+    non_issue_pivot.reset_index(inplace=True)
     
-    # Display and download the modified table
-    st.write(non_issue_pivot)
-    download_excel(non_issue_pivot, "actual_delivery_time_analysis.xlsx")
+    # ---------------------------------
+    # 2. Separate 'All' row from actual cities
+    # ---------------------------------
+    if 'All' in non_issue_pivot['BUSINESS CITY'].values:
+        total_row = non_issue_pivot[non_issue_pivot['BUSINESS CITY'] == 'All']
+        city_rows = non_issue_pivot[non_issue_pivot['BUSINESS CITY'] != 'All']
+    else:
+        total_row = None
+        city_rows = non_issue_pivot
     
-                
+    # ---------------------------------
+    # 3. Sort cities by Average Delivery Time ascending
+    # ---------------------------------
+    city_rows = city_rows.sort_values('Average Delivery Time', ascending=True)
     
-          
+    # ---------------------------------
+    # 4. Concatenate total row back at the bottom
+    # ---------------------------------
+    if total_row is not None:
+        non_issue_pivot_sorted = pd.concat([city_rows, total_row], ignore_index=True)
+    else:
+        non_issue_pivot_sorted = city_rows
     
-    
-    # Identify and categorize issues
-    df['Issues'] = df.apply(categorize_issues, axis=1)
-
-    # Pivot Table for Total Delivery Time (Including Issue and Non-Issue Orders)
-    #st.write("### Total Delivery Time (Including Issue and Non-Issue Orders)")
-    total_delivery_pivot = df.pivot_table(
-        index='BUSINESS CITY',
-        values=[
-            'STATE', 'DRIVER ID', 'Accepted by Business', 'Assigned Time',
-            'Accepted by Driver', 'Driver to Business', 'Driver in Business',
-            'Pickup to Customer', 'Average Delivery Time'
-        ],
-        aggfunc={
-            'STATE': 'count',  # Total Orders
-            'DRIVER ID': 'nunique',  # Total Drivers
-            'Accepted by Business': 'mean',
-            'Assigned Time': 'mean',
-            'Accepted by Driver': 'mean',
-            'Driver to Business': 'mean',
-            'Driver in Business': 'mean',
-            'Pickup to Customer': 'mean',
-            'Average Delivery Time': 'mean'
-        },
-        margins=True
-    ).round(1)
-
-    # Rename columns and arrange in the desired order
-    total_delivery_pivot.rename(columns={'STATE': 'Total Orders', 'DRIVER ID': 'Total Drivers'}, inplace=True)
-
+    # ---------------------------------
+    # 5. Keep column order
+    # ---------------------------------
     column_order = [
-        'Total Orders', 'Total Drivers', 'Accepted by Business', 'Assigned Time',
+        'BUSINESS CITY',
+        'Accepted by Business', 'Assigned Time',
         'Accepted by Driver', 'Driver to Business', 'Driver in Business',
         'Pickup to Customer', 'Average Delivery Time'
     ]
+    non_issue_pivot_sorted = non_issue_pivot_sorted[column_order]
+    
+    # ---------------------------------
+    # 6. Display & download
+    # ---------------------------------
+    st.write(non_issue_pivot_sorted)
+    download_excel(non_issue_pivot_sorted, "actual_delivery_time_analysis.xlsx")
+        
+   
+     
+    
+    st.write("### Average Delivery Time & Order Volume Trend by Hour ")
+    
+    # ---------------------------------
+    # 1. Extract hour
+    # ---------------------------------
+    non_issue_orders['HOUR'] = non_issue_orders['DELIVERY TIME'].dt.hour
+    
+    # ---------------------------------
+    # 2. Operating hours: 07 → 02
+    # ---------------------------------
+    operating_hours = list(range(7, 24)) + [0, 1, 2]
+    
+    # ---------------------------------
+    # 3. City selector
+    # ---------------------------------
+    cities = ['All Cities'] + sorted(non_issue_orders['BUSINESS CITY'].dropna().unique().tolist())
+    selected_city = st.selectbox("Select City", cities)
+    
+    if selected_city != 'All Cities':
+        data = non_issue_orders[non_issue_orders['BUSINESS CITY'] == selected_city]
+    else:
+        data = non_issue_orders.copy()
+    
+    # ---------------------------------
+    # 4. Aggregate by hour
+    # ---------------------------------
+    hourly_agg = (
+        data[data['HOUR'].isin(operating_hours)]
+        .groupby('HOUR')
+        .agg(
+            avg_delivery_time=('Average Delivery Time', 'mean'),
+            order_volume=('Average Delivery Time', 'count')
+        )
+        .reset_index()
+    )
+    
+    
+    # ---------------------------------
+    # 5. Custom hour ordering (07 → 02)
+    # ---------------------------------
+    hour_order = {hour: i for i, hour in enumerate(operating_hours)}
+    hourly_agg['order'] = hourly_agg['HOUR'].map(hour_order)
+    hourly_agg = hourly_agg.sort_values('order')
+    
+    # ---------------------------------
+    # 6. Hour labels
+    # ---------------------------------
+    hourly_agg['Hour Label'] = hourly_agg['HOUR'].apply(lambda x: f"{x:02d}:00")
+    
+    # ---------------------------------
+    # ---------------------------------
+    # 7. Plot: Line + Bar (secondary axis)
+    # ---------------------------------
+    fig, ax1 = plt.subplots(figsize=(11, 5))
+    ax2 = ax1.twinx()
+    
+    # Bar chart → Order volume
+    bars = ax2.bar(
+        hourly_agg['Hour Label'],
+        hourly_agg['order_volume'],
+        alpha=0.3,
+        width=0.6,
+        label='Order Volume'
+    )
+    
+    # Line chart → Avg delivery time (make it bold & visible)
+    line, = ax1.plot(
+        hourly_agg['Hour Label'],
+        hourly_agg['avg_delivery_time'],
+        marker='o',
+        linewidth=3,        # bolder line
+        markersize=6,
+        label='Average Delivery Time'
+    )
+    
+    # Axis labels
+    ax1.set_xlabel("Hour of Operation")
+    ax1.set_ylabel("Average Delivery Time (minutes)")
+    ax2.set_ylabel("Number of Orders")
+    
+    # Title
+    ax1.set_title(
+        f"Average Delivery Time vs Order Volume by Hour ({selected_city})",
+        fontsize=12
+    )
+    
+    # Grid
+    ax1.grid(True, linestyle='--', alpha=0.4)
+    
+    # X-axis formatting
+    plt.xticks(rotation=90, ha='center')
+    
+    # ---------------------------------
+    # 8. Legend (top right)
+    # ---------------------------------
+    ax1.legend(
+        handles=[line, bars],
+        loc='upper right'
+    )
+    
+    # ---------------------------------
+    # 9. Shift indicators (text above)
+    # ---------------------------------
+    ax1.text(0.02, 1.08, "Morning (07–11)", transform=ax1.transAxes, fontsize=10)
+    ax1.text(0.28, 1.08, "Lunch peak (12–15)", transform=ax1.transAxes, fontsize=10)
+    ax1.text(0.55, 1.08, "Evening dinner (18–21)", transform=ax1.transAxes, fontsize=10)
+    ax1.text(0.82, 1.08, "Mid night (23–02)", transform=ax1.transAxes, fontsize=10)
+    
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    # ---------------------------------
+    # 9. Table (1 decimal place)
+    # ---------------------------------
+    hourly_table = hourly_agg[['Hour Label', 'avg_delivery_time', 'order_volume']].copy()
+    hourly_table.columns = ['Hour', 'Average Delivery Time (min)', 'Order Volume']
+    hourly_table['Average Delivery Time (min)'] = hourly_table['Average Delivery Time (min)'].round(1)
+    
+    st.write("Hourly Delivery Time & Order Volume Table")
+    st.dataframe(hourly_table, use_container_width=True)
+    
+    # ---------------------------------
+    # 10. Download
+    # ---------------------------------
+    download_excel(hourly_table, "avg_delivery_time_and_volume_by_hour.xlsx")
 
-    total_delivery_pivot = total_delivery_pivot[column_order]
-
-    # Reset index to include 'BUSINESS CITY' as a column in the Excel output
-    total_delivery_pivot.reset_index(inplace=True)
-
-    #st.write(total_delivery_pivot)
-    #download_excel(total_delivery_pivot, "total_delivery_time.xlsx")
-    
-    
-    
-    # Identify excluded/problematic orders
-    df['Issues'] = df.apply(categorize_issues, axis=1)
-    df['Excluded Orders'] = df['Issues'].apply(lambda x: 1 if x != "" else 0)
-    
-    # Pivot table
-    actual_pivot = df.pivot_table(
-        index='BUSINESS CITY',
-        values=['Excluded Orders', 'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
-                'Driver to Business', 'Driver in Business', 'Pickup to Customer', 'Average Delivery Time'],
-        aggfunc={'Excluded Orders':'sum','Accepted by Business':'mean','Assigned Time':'mean',
-                 'Accepted by Driver':'mean','Driver to Business':'mean','Driver in Business':'mean',
-                 'Pickup to Customer':'mean','Average Delivery Time':'mean'}
-    ).round(1).reset_index()
-    
-    # Ensure column order
-    actual_pivot = actual_pivot[['BUSINESS CITY','Excluded Orders','Accepted by Business','Assigned Time',
-                                 'Accepted by Driver','Driver to Business','Driver in Business',
-                                 'Pickup to Customer','Average Delivery Time']]
-    
-    # Sort only if numeric column is valid
-    if pd.api.types.is_numeric_dtype(actual_pivot['Average Delivery Time']):
-        actual_pivot = actual_pivot.sort_values(by='Average Delivery Time', ascending=True)
-    
-    st.write("### Actual Delivery Time Analysis (with number of problematic orders)")
-    st.table(actual_pivot)
-    download_excel(actual_pivot, "actual_delivery_time_analysis.xlsx")
 
 
-    
 
     #PRE ORDER ANALYSIS
     # Ensure datetime columns are in the correct format
@@ -810,62 +965,76 @@ def delivery_time():
     
         
     
-
-  
-    st.write("Delivery Time Categorization:")
-    #st.subheader(f"--- Delivery Time Categorizatio ---")
-    # Delivery Time Categorization
-    explode = (0.1, 0, 0, 0, 0, 0)
-    bins = [0, 40, 45, 60, 90, 119, float('inf')]
-    labels = ['Excellent', 'Ideal', 'Average', 'Delayed', 'Bad', 'Worse']
-    colors = sns.color_palette("deep", len(labels))
+    st.write("Delivery Time Categorization by Business City")
     
-    # Add a new column with the delivery time categories
-    df['Delivery Time Category'] = pd.cut(df['Average Delivery Time'], bins=bins, labels=labels)
+    # -----------------------------
+    # 1. Define bins and column labels (clean naming)
+    # -----------------------------
+    bins = [0, 40, 50, 60, 90, float('inf')]
+    labels = [
+        '0–40 minutes - On time',
+        '41–50 minutes - Manageable',
+        '51–60 minutes',
+        '61–90 minutes',
+        '91+ minutes - Worse situation'
+    ]
     
-    # Count the number of orders in each category
-    category_counts = df['Delivery Time Category'].value_counts()
+    # -----------------------------
+    # 2. Create Delivery Time Category
+    # -----------------------------
+    df['Delivery Time Category'] = pd.cut(
+        df['Average Delivery Time'],
+        bins=bins,
+        labels=labels,
+        include_lowest=True
+    )
     
-    # Create a pie chart
-    fig, ax = plt.subplots(figsize=(8, 8))
-    ax.pie(category_counts, labels=category_counts.index, autopct='%1.1f%%',
-           startangle=140, explode=explode, colors=colors)
-    ax.set_title('Distribution of Delivery Time Categories')
-    plt.axis('equal')
+    # -----------------------------
+    # 3. Pivot table: City × Delivery Category
+    # -----------------------------
+    delivery_table = pd.pivot_table(
+        df,
+        index='BUSINESS CITY',
+        columns='Delivery Time Category',
+        values='Average Delivery Time',
+        aggfunc='count',
+        fill_value=0
+    )
     
-    # Dynamic legend generation
-    legend_labels = [f'{label} ({start}-{end} mins)' for label, start, end in zip(labels, bins[:-1], bins[1:])]
-    ax.legend(legend_labels, title='Categories in minutes', loc='upper right', bbox_to_anchor=(1.5, 1))
+    # -----------------------------
+    # 4. Add TOTAL column (row-wise)
+    # -----------------------------
+    delivery_table['Total'] = delivery_table.sum(axis=1)
     
-    st.pyplot(fig)
+    # -----------------------------
+    # 5. Sort cities by TOTAL orders (DESC)
+    # -----------------------------
+    delivery_table = delivery_table.sort_values(by='Total', ascending=False)
     
+    # -----------------------------
+    # 6. Add TOTAL row (column-wise)
+    # -----------------------------
+    total_row = delivery_table.sum(axis=0)
+    total_row.name = 'Total'
+    delivery_table = pd.concat([delivery_table, total_row.to_frame().T])
     
+    # -----------------------------
+    # 7. Reset index for display
+    # -----------------------------
+    delivery_table = delivery_table.reset_index()
     
-    # Table for Delivery Categories
-    results = pd.DataFrame({
-        'Category': labels,
-        'Range of Classification': [f'{start} - {end}' for start, end in zip(bins[:-1], bins[1:])],
-    })
-
-    # Add a column for the number of orders in each category
-    results['Number of Orders'] = [category_counts.get(label, 0) for label in labels]
-
-    # Calculate the percentage of the number of orders
-    total_orders = results['Number of Orders'].sum()
-    results['Percentage %'] = ((results['Number of Orders'] / total_orders) * 100).round(1)
-
-    # Display the table of results
-    st.write("Table of Delivery Time Categories:")
-    st.write(results)
-
-    # Display the download button for the delivery categories
-    if st.button("Download Delivery Time Categories"):
-        download_excel(results, "Delivery_Time_Categories.xlsx")
+    # -----------------------------
+    # 8. Display in Streamlit
+    # -----------------------------
+    st.subheader("Delivery Time Categorization by Business City")
+    st.dataframe(delivery_table, use_container_width=True)
+    
+    # -----------------------------
+    # 9. Download button
+    # -----------------------------
+    if st.button("Download Delivery Time Performance by City"):
+        download_excel(delivery_table, "Delivery_Time_By_City.xlsx")
         
-            
-        
-
-
 
 
                 
@@ -1648,4 +1817,3 @@ if __name__ == "__main__":
 
 if st.checkbox("By"):
     st.success("lusekelo2035")
-
