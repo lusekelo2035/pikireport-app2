@@ -15,7 +15,7 @@ import base64
 from math import radians, sin, cos, sqrt, atan2
 import folium
 from folium.plugins import HeatMap
-from pandas import ExcelWriter
+#from pandas import ExcelWriter
 
 
 
@@ -1817,3 +1817,4 @@ if __name__ == "__main__":
 
 if st.checkbox("By"):
     st.success("lusekelo2035")
+
