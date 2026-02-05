@@ -362,7 +362,222 @@ def data_analysis():
             # Download button
             if st.button("Download Driver Attendance Report"):
                 download_excel(attendance_df, "driver_attendance_report.xlsx")
+                
+            
+            
+            
+        # ---- Custom Analysis for Business City and Order Status ----
+        # Map specific states to new columns using multiple conditions
+        df['ORDER STATUS'] = np.where(
+            df['STATE'].isin(['Delivery Completed By Driver']),
+            'DELIVERY COMPLETED BY DRIVER',
+            np.where(
+                df['STATE'].isin(['Rejected', 'Rejected by Driver', 'Rejected by Business']),
+                'REJECTED',
+                np.where(
+                    df['STATE'].isin(['Completed', 'Pickup completed by customer']),
+                    'PICKUP ORDERS',
+                    np.where(
+                        df['STATE'].isin([
+                            'Delivery Failed By Driver',
+                            'Not picked by customer',
+                            'Pickup Failed By Driver'
+                        ]),
+                        'DELIVERY FAILED BY DRIVER',
+                        None
+                    )
+                )
+            )
+        )
         
+        # Filter data to include only rows with mapped order statuses
+        df_filtered = df.dropna(subset=['ORDER STATUS'])
+        
+        # Create pivot table
+        order_status_summary = df_filtered.pivot_table(
+            index='BUSINESS CITY',
+            columns='ORDER STATUS',
+            values='ID',
+            aggfunc='count',
+            margins=False
+        ).fillna(0).astype(int)
+        
+        # Add total orders per city
+        order_status_summary['TOTAL_ORDERS'] = order_status_summary.sum(axis=1)
+        
+        # Ensure expected columns exist
+        expected_cols = [
+            'DELIVERY COMPLETED BY DRIVER',
+            'REJECTED',
+            'PICKUP ORDERS',
+            'DELIVERY FAILED BY DRIVER'
+        ]
+        
+        for col in expected_cols:
+            if col not in order_status_summary.columns:
+                order_status_summary[col] = 0
+        
+        # Vendor count
+        restaurant_counts = (
+            df[['BUSINESS NAME', 'BUSINESS CITY']]
+            .drop_duplicates()
+            .groupby('BUSINESS CITY')
+            .size()
+            .reset_index(name='NUMBER OF RESTAURANTS')
+        )
+        
+        # Merge restaurant data
+        order_status_summary = order_status_summary.reset_index().merge(
+            restaurant_counts,
+            on='BUSINESS CITY',
+            how='left'
+        )
+        
+        order_status_summary['NUMBER OF RESTAURANTS'] = (
+            order_status_summary['NUMBER OF RESTAURANTS']
+            .fillna(0)
+            .astype(int)
+        )
+        
+        # Percentage contribution
+        total_company_orders = order_status_summary['TOTAL_ORDERS'].sum()
+        
+        order_status_summary['PERCENTAGE CONTRIBUTION'] = (
+            (order_status_summary['TOTAL_ORDERS'] / total_company_orders) * 100
+        ).round(1).astype(str) + '%'
+        
+        # Sort by highest orders
+        order_status_summary = order_status_summary.sort_values(
+            by='TOTAL_ORDERS',
+            ascending=False
+        )
+        
+        # Add Total row
+        total_row = pd.DataFrame({
+            'BUSINESS CITY': ['TOTAL'],
+            'DELIVERY COMPLETED BY DRIVER': [order_status_summary['DELIVERY COMPLETED BY DRIVER'].sum()],
+            'REJECTED': [order_status_summary['REJECTED'].sum()],
+            'PICKUP ORDERS': [order_status_summary['PICKUP ORDERS'].sum()],
+            'DELIVERY FAILED BY DRIVER': [order_status_summary['DELIVERY FAILED BY DRIVER'].sum()],
+            'TOTAL_ORDERS': [order_status_summary['TOTAL_ORDERS'].sum()],
+            'NUMBER OF RESTAURANTS': [order_status_summary['NUMBER OF RESTAURANTS'].sum()],
+            'PERCENTAGE CONTRIBUTION': ['100%']
+        })
+        
+        order_status_summary = pd.concat(
+            [order_status_summary, total_row],
+            ignore_index=True
+        )
+        
+        # FINAL COLUMN ORDER
+        final_cols = [
+            'BUSINESS CITY',
+            'NUMBER OF RESTAURANTS',
+            'DELIVERY COMPLETED BY DRIVER',
+            'REJECTED',
+            'PICKUP ORDERS',
+            'DELIVERY FAILED BY DRIVER',
+            'TOTAL_ORDERS',
+            'PERCENTAGE CONTRIBUTION'
+        ]
+        
+        order_status_summary = order_status_summary[final_cols]
+        
+        # Display table
+        st.markdown("### Order Status by Business City")
+        st.table(order_status_summary)
+        
+        # Download file
+        if st.button("Download Order Status by Business City"):
+            download_excel(order_status_summary, "order_status_by_city.xlsx")
+        
+
+        import matplotlib.pyplot as plt
+        
+        # ==============================
+        # PIE CHART: ORDER CONTRIBUTION
+        # ==============================
+        
+        # Define city groups
+        core_cities = [
+            'Masaki',
+            'City Centre',
+            'Mikocheni',
+            'Mlimani',
+            'Mbezi',
+            'Arusha',
+            'Kinondoni'
+        ]
+        
+        regional_cities = ['Mwanza', 'Zanzibar', 'Arusha', 'Dodoma']
+        regional_label = 'REGIONAL AREAS (Mwanza, Zanzibar, Arusha, Dodoma)'
+        
+        # Prepare data (exclude TOTAL row)
+        pie_source = order_status_summary[
+            order_status_summary['BUSINESS CITY'] != 'TOTAL'
+        ].copy()
+        
+        # Default group
+        pie_source['PIE_GROUP'] = 'OTHERS'
+        
+        # Assign core cities
+        pie_source.loc[
+            pie_source['BUSINESS CITY'].isin(core_cities),
+            'PIE_GROUP'
+        ] = pie_source['BUSINESS CITY']
+        
+        # Assign regional cities
+        pie_source.loc[
+            pie_source['BUSINESS CITY'].isin(regional_cities),
+            'PIE_GROUP'
+        ] = regional_label
+        
+        # ==============================
+        # Build dynamic OTHERS label
+        # ==============================
+        others_cities = pie_source.loc[
+            pie_source['PIE_GROUP'] == 'OTHERS',
+            'BUSINESS CITY'
+        ].unique()
+        
+        if len(others_cities) > 0:
+            others_label = "OTHERS (" + ", ".join(sorted(others_cities)) + ")"
+        else:
+            others_label = "OTHERS"
+        
+        pie_source.loc[
+            pie_source['PIE_GROUP'] == 'OTHERS',
+            'PIE_GROUP'
+        ] = others_label
+        
+        # ==============================
+        # Aggregate for pie chart
+        # ==============================
+        pie_summary = (
+            pie_source
+            .groupby('PIE_GROUP', as_index=False)['TOTAL_ORDERS']
+            .sum()
+            .sort_values('TOTAL_ORDERS', ascending=False)
+        )
+        
+        # ==============================
+        # Plot pie chart
+        # ==============================
+        fig, ax = plt.subplots(figsize=(9, 9))
+        
+        ax.pie(
+            pie_summary['TOTAL_ORDERS'],
+            labels=pie_summary['PIE_GROUP'],
+            autopct='%1.1f%%',
+            startangle=90
+        )
+        
+        ax.set_title("Order Contribution by Business City (Grouped View)")
+        ax.axis('equal')
+        
+        st.markdown("### Order Contribution by Business City")
+        st.pyplot(fig)
+
 
 
 # =====================================
@@ -1817,4 +2032,3 @@ if __name__ == "__main__":
 
 if st.checkbox("By"):
     st.success("lusekelo2035")
-
