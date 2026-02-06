@@ -773,7 +773,7 @@ def delivery_time():
     # ==============================
     df = calculate_distances(df)
     
-    df['Cause for the delay'] = df['MESSAGES']
+    #df['Cause for the delay'] = df['MESSAGES']
     
     # Apply issue logic
     df['Issues'] = df.apply(categorize_issues, axis=1)
@@ -794,7 +794,7 @@ def delivery_time():
             'DISTANCE (km)', 'SUBTOTAL',
             'Accepted by Business', 'Assigned Time', 'Accepted by Driver',
             'Driver to Business', 'Driver in Business', 'Pickup to Customer',
-            'Average Delivery Time', 'Issues', 'Cause for the delay'
+            'Average Delivery Time', 'Issues'
         ]
     ].round(1)
     
@@ -2032,3 +2032,4 @@ if __name__ == "__main__":
 
 if st.checkbox("By"):
     st.success("lusekelo2035")
+
