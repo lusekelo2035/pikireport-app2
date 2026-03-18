@@ -5,7 +5,7 @@ Created on Tue Jan 16 01:29:43 2024
 @author: USER
 """
 
-import streamlit as st
+#import streamlit as st
 import pandas as pd
 import numpy as np
 import seaborn as sns
